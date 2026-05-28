@@ -8,13 +8,13 @@
 
 | Componente | Función |
 |------------|---------|
-| `App` | Maneja pestañas (setup, questions, game, sound) y persistencia global (preguntas). |
+| `App` | Maneja pestañas (setup, questions, game, sound) y persistencia global (preguntas, estado del torneo). |
 | `TeamSetup` | Configuración de nombres de equipos. |
-| `QManager` | CRUD de preguntas, import/export, reset a valores por defecto. |
+| `QManager` | CRUD de preguntas, import/export (JSON y Excel), reset a valores por defecto. |
 | `SoundManager` | Configuración de sonidos personalizados y música por fases. Usa IndexedDB. |
-| `GameView` | Control central del torneo: enfrentamientos, preguntas, puntajes, música de fondo. |
-| `MatchBoard` | Panel de control de un enfrentamiento (puntos rápidos, comodines). |
-| `ProjectorView` | Vista para pantalla pública (se abre en ventana nueva). |
+| `GameView` | Control central del torneo: enfrentamientos, preguntas, puntajes, música de fondo, sincronización con proyector. |
+| `MatchBoard` | Panel de control de un enfrentamiento (puntos rápidos, comodines, racha de aciertos). |
+| `ProjectorView` | Vista para pantalla pública (se abre en ventana nueva). Recibe actualizaciones vía `postMessage`. |
 | `TournamentMgr` | Muestra enfrentamientos, posiciones, historial y opciones de ronda. Detecta cambios de fase musical. |
 | `TieBreaker` | Modal para resolver empates por recitación de un texto. Cambia la música a fase "tiebreaker". |
 | `Timer` | Componente visual de cuenta regresiva con sonido de tick. |
@@ -25,11 +25,11 @@
 
 ## 3. Estados persistentes
 
-| Clave | Contenido | Almacenamiento |
-|-------|------------|----------------|
-| `dilo_como_es_save` | Estado completo del torneo (equipos, puntajes, rondas, enfrentamientos, pregunta activa, selecciones, etc.) | localStorage |
-| `dilo_como_es_questions` | Banco de preguntas personalizado | localStorage |
-| `DiloSoundDB` (IndexedDB) | Almacena los buffers de sonidos personalizados y músicas por fase. Claves: `correct`, `wrong`, `timeout`, `tick`, `fanfare`, `joker`, `countdown`, `music_start`, `music_initial`, `music_semifinal`, `music_final`, `music_tiebreaker` | IndexedDB |
+| Clave / Base de datos | Contenido | Almacenamiento |
+|----------------------|-----------|----------------|
+| `DiloGameDB` (gameState) | Estado completo del torneo (equipos, puntajes, rondas, enfrentamientos, pregunta activa, selecciones, etc.) | IndexedDB |
+| `DiloGameDB` (questions) | Banco de preguntas personalizado (cada pregunta con `id`, `stage`, `level`, `text`, `options`, `answer`) | IndexedDB |
+| `DiloSoundDB` (sounds) | Buffers de sonidos personalizados y músicas por fase. Claves: `correct`, `wrong`, `timeout`, `tick`, `fanfare`, `joker`, `countdown`, `roundEnd`, `music_start`, `music_initial`, `music_semifinal`, `music_final`, `music_tiebreaker` | IndexedDB |
 
 ## 4. Música por fases
 - **Fases**: `start`, `initial`, `semifinal`, `final`, `tiebreaker`.
@@ -39,8 +39,8 @@
 - `TieBreaker` cambia a `tiebreaker` al abrirse, y el cierre del modal no restaura la música automáticamente (se deja que `TournamentMgr` lo haga al actualizar la ronda).
 
 ## 5. Flujo de datos
-- `GameView` envía actualizaciones al `ProjectorView` mediante `postMessage`.
-- Los cambios en preguntas o torneo se guardan automáticamente con `useEffect`.
+- `GameView` envía actualizaciones al `ProjectorView` mediante `postMessage` cada vez que cambia el estado (pregunta, temporizador, selecciones, modo respuesta, ocultar/mostrar, desempate, etc.).
+- Los cambios en preguntas o torneo se guardan automáticamente en IndexedDB con `useEffect`.
 - El Service Worker intercepta las peticiones a CDNs y sirve respuestas cacheadas.
 - Los archivos de audio se cargan, se clonan (`arrayBuffer.slice(0)`) para evitar el error "detached ArrayBuffer", se decodifican y se guardan en IndexedDB. El buffer decodificado se usa para reproducción.
 
