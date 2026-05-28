@@ -10,6 +10,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background-color: #0a141d; font-family: 'Inter', sans-serif; color: #d9e4f1; overflow: hidden; height: 100vh; }
@@ -44,6 +45,30 @@
     height: 80px;
     margin-bottom: 16px;
   }
+  .turn-highlight {
+    border: 3px solid #97df5c !important;
+    box-shadow: 0 0 20px #97df5c !important;
+    transition: all 0.2s;
+  }
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(4px);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-card {
+    background: #16212a;
+    border-radius: 24px;
+    padding: 32px;
+    max-width: 400px;
+    text-align: center;
+    border: 1px solid #ffc063;
+    box-shadow: 0 0 40px rgba(255,192,99,0.3);
+  }
 
   @media (max-width: 1200px) {
     .game-grid {
@@ -59,12 +84,62 @@
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)) !important;
     }
   }
+  .toast-message {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #2c3640cc;
+    backdrop-filter: blur(8px);
+    padding: 8px 24px;
+    border-radius: 40px;
+    font-size: 14px;
+    font-weight: bold;
+    z-index: 1100;
+    pointer-events: none;
+    animation: fade-up 2s ease forwards;
+    color: #97df5c;
+    border: 1px solid #97df5c;
+  }
+  @keyframes fade-up {
+    0% { opacity: 1; transform: translateX(-50%) translateY(0); }
+    70% { opacity: 1; }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-30px); }
+  }
+  .tie-container {
+    background: #16212a;
+    border-radius: 32px;
+    padding: 32px;
+    max-width: 700px;
+    width: 90%;
+    text-align: center;
+  }
+  .tie-word {
+    background: #212b35;
+    border-radius: 24px;
+    padding: 20px;
+    margin: 20px 0;
+    font-size: 28px;
+    font-weight: 600;
+  }
+  .tie-teams {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    margin: 20px 0;
+  }
+  .tie-team-card {
+    background: #2c3640;
+    border-radius: 16px;
+    padding: 12px 20px;
+    min-width: 120px;
+  }
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script>
-  // Service Worker para cachear dependencias y permitir modo offline total
+  // Service Worker (para offline)
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(e => console.warn('SW offline no disponible', e));
   }
@@ -73,7 +148,8 @@ const urlsToCache = [
   'https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js',
-  'https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700;800&family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;600;700&display=swap'
+  'https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700;800&family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;600;700&display=swap',
+  'https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js'
 ];
 
 self.addEventListener('install', event => {
@@ -132,7 +208,7 @@ const SC = {
   3:{label:"Etapa 3 – Dilo Como Es",      time:20, correct:500,  incorrect:-200, color: C.primary}
 };
 const TC = [C.secondary, C.tertiary, C.primary, "#c084fc", "#f87171", "#34d399", "#fbbf24", "#60a5fa"];
-const makeTeam = n => ({name:n, score:0, jokers:[false,false,false], pasoUsed:false, eliminated:false});
+const makeTeam = (n, streak=0) => ({name:n, score:0, jokers:[false,false,false], pasoUsed:false, eliminated:false, streak:streak});
 const DEMO_Q = [
   {id:1,stage:1,text:"¿Cuál es el primer módulo de lecciones del Club Bíblico?",options:["Jerarquía","Raíces","Inquebrantable","La Caza"],answer:"B",level:1},
   {id:2,stage:1,text:"¿Cuántas semanas de La Hora Silenciosa cubre el concurso?",options:["25 semanas","30 semanas","35 semanas","40 semanas"],answer:"C",level:1},
@@ -161,308 +237,50 @@ const LogoSymbol = () => (
   </svg>
 );
 
-/* ═══════════════════════════════════════════════════════ AUDIO ENGINE con música por fases ══ */
+/* ═══════════════════════════════════════════════════════ AUDIO ENGINE (con IndexedDB y roundEnd completo) ══ */
 const AudioEngine = (() => {
   let ctx = null;
   let currentSource = null;
   let currentGain = null;
   let isMusicPlaying = false;
   let currentPhase = 'start';
-  
-  // Buffers de música por fase
-  let musicBuffers = {
-    start: null,      // Pantalla de inicio / proyector inactivo
-    initial: null,    // Ronda Inicial / Cuartos de Final
-    semifinal: null,  // Semifinal
-    final: null,      // Final
-    tiebreaker: null  // Desempate
-  };
-  
-  let customBuffers = {
-    correct: null,
-    wrong: null,
-    timeout: null,
-    tick: null,
-    fanfare: null,
-    joker: null,
-    countdown: null
-  };
-  
+  let musicBuffers = { start: null, initial: null, semifinal: null, final: null, tiebreaker: null };
+  let customBuffers = { correct: null, wrong: null, timeout: null, tick: null, fanfare: null, joker: null, countdown: null, roundEnd: null };
   let db = null;
   let readyPromise = null;
   let isReady = false;
-
   const DB_NAME = 'DiloSoundDB';
-  const DB_VERSION = 2; // Incrementado para nueva estructura
+  const DB_VERSION = 2;
   const STORE_NAME = 'sounds';
 
-  const getCtx = () => {
-    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
-    return ctx;
-  };
-
-  const resumeContext = async () => {
-    const ac = getCtx();
-    if (ac.state === 'suspended') await ac.resume();
-  };
-
-  const playSound = (type, fnDefault) => {
-    try {
-      const ac = getCtx();
-      const buffer = customBuffers[type];
-      if (buffer) {
-        resumeContext().then(() => {
-          const source = ac.createBufferSource();
-          source.buffer = buffer;
-          const gain = ac.createGain();
-          gain.gain.value = 0.5;
-          source.connect(gain);
-          gain.connect(ac.destination);
-          source.start();
-        });
-      } else {
-        if (fnDefault) fnDefault(ac);
-      }
-    } catch(e) { console.warn(e); }
-  };
-
-  const tone = (ac, freq, type, start, dur, vol=0.5, ramp=true) => {
-    const o = ac.createOscillator();
-    const g = ac.createGain();
-    o.connect(g);
-    g.connect(ac.destination);
-    o.type = type;
-    o.frequency.setValueAtTime(freq, ac.currentTime + start);
-    g.gain.setValueAtTime(ramp ? 0 : vol, ac.currentTime + start);
-    if (ramp) g.gain.linearRampToValueAtTime(vol, ac.currentTime + start + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + start + dur);
-    o.start(ac.currentTime + start);
-    o.stop(ac.currentTime + start + dur);
-  };
-
-  // Síntesis por defecto para cada fase (versiones sintéticas con diferentes tensiones)
-  const playDefaultMusicForPhase = (phase, ac) => {
-    if (currentSource) {
-      try { currentSource.stop(); } catch(e) {}
-      currentSource = null;
-    }
-    if (currentGain) currentGain.disconnect();
-    currentGain = ac.createGain();
-    currentGain.gain.value = 0.2;
-    currentGain.connect(ac.destination);
-    
-    let interval;
-    let tempo = 2.0;
-    let notes = [];
-    
-    switch(phase) {
-      case 'start':
-        notes = [[261.63, 329.63, 392.00], [349.23, 440.00, 523.25], [293.66, 369.99, 440.00], [261.63, 329.63, 392.00]];
-        tempo = 2.5;
-        break;
-      case 'initial':
-        notes = [[261.63, 329.63], [293.66, 369.99], [329.63, 392.00], [349.23, 440.00]];
-        tempo = 1.8;
-        break;
-      case 'semifinal':
-        notes = [[293.66, 369.99, 440.00], [329.63, 392.00, 493.88], [349.23, 440.00, 523.25], [392.00, 493.88, 587.33]];
-        tempo = 1.4;
-        break;
-      case 'final':
-        notes = [[349.23, 440.00, 523.25], [392.00, 493.88, 587.33], [440.00, 523.25, 659.25], [493.88, 587.33, 698.46]];
-        tempo = 1.2;
-        break;
-      case 'tiebreaker':
-        notes = [[523.25, 659.25], [493.88, 587.33], [440.00, 523.25], [392.00, 493.88]];
-        tempo = 1.0;
-        break;
-      default: return;
-    }
-    
-    let chordIndex = 0;
-    const playChord = () => {
-      if (!isMusicPlaying || currentPhase !== phase) return;
-      const now = ac.currentTime;
-      const chord = notes[chordIndex % notes.length];
-      chord.forEach(freq => {
-        const osc = ac.createOscillator();
-        const gain = ac.createGain();
-        osc.connect(gain);
-        gain.connect(currentGain);
-        osc.type = 'sine';
-        osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0, now);
-        gain.gain.linearRampToValueAtTime(0.12, now + 0.05);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + tempo - 0.1);
-        osc.start(now);
-        osc.stop(now + tempo);
-      });
-      chordIndex++;
-    };
-    
-    playChord();
-    interval = setInterval(() => {
-      if (isMusicPlaying && currentPhase === phase) playChord();
-      else if (!isMusicPlaying) clearInterval(interval);
-    }, tempo * 1000);
-    
-    return interval;
-  };
-  
+  const getCtx = () => { if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)(); return ctx; };
+  const resumeContext = async () => { const ac = getCtx(); if (ac.state === 'suspended') await ac.resume(); };
+  const playSound = (type, fnDefault) => { try { const ac = getCtx(); const buffer = customBuffers[type]; if (buffer) { resumeContext().then(() => { const source = ac.createBufferSource(); source.buffer = buffer; const gain = ac.createGain(); gain.gain.value = 0.5; source.connect(gain); gain.connect(ac.destination); source.start(); }); } else { if (fnDefault) fnDefault(ac); } } catch(e) { console.warn(e); } };
+  const tone = (ac, freq, type, start, dur, vol=0.5, ramp=true) => { const o = ac.createOscillator(); const g = ac.createGain(); o.connect(g); g.connect(ac.destination); o.type = type; o.frequency.setValueAtTime(freq, ac.currentTime + start); g.gain.setValueAtTime(ramp ? 0 : vol, ac.currentTime + start); if (ramp) g.gain.linearRampToValueAtTime(vol, ac.currentTime + start + 0.02); g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + start + dur); o.start(ac.currentTime + start); o.stop(ac.currentTime + start + dur); };
+  const defaultCorrect = (ac) => { [523.25,659.25,783.99,1046.50].forEach((f,i)=>tone(ac,f,'sine',i*0.12,0.45,0.3)); tone(ac,1318.52,'sine',0.48,0.8,0.25); };
+  const defaultWrong = (ac) => { tone(ac,440,'sawtooth',0,0.2,0.35); tone(ac,349.23,'sawtooth',0.2,0.25,0.3); tone(ac,261.63,'sawtooth',0.45,0.4,0.25); };
+  const defaultTimeout = (ac) => { [880,660,440,220].forEach((f,i)=>tone(ac,f,'square',i*0.15,0.2,0.2)); };
+  const defaultTick = (ac) => { tone(ac,880,'square',0,0.08,0.1); };
+  const defaultFanfare = (ac) => { [523,659,784,1047,1319].forEach((f,i)=>tone(ac,f,'sine',i*0.1,0.3,0.4)); tone(ac,1568,'sine',0.5,0.8,0.35); };
+  const defaultJoker = (ac) => { [800,1000,1200,1500].forEach((f,i)=>tone(ac,f,'sine',i*0.08,0.2,0.25)); };
+  const defaultCountdown = (ac) => { tone(ac,1200,'sine',0,0.1,0.3); };
+  const defaultRoundEnd = (ac) => { [523, 493, 440, 392, 349].forEach((f,i)=>tone(ac,f,'sine',i*0.15,0.4,0.35)); };
+  const playDefaultMusicForPhase = (phase, ac) => { if (currentSource) { try { currentSource.stop(); } catch(e) {} currentSource = null; } if (currentGain) currentGain.disconnect(); currentGain = ac.createGain(); currentGain.gain.value = 0.2; currentGain.connect(ac.destination); let interval; let tempo = 2.0; let notes = []; switch(phase) { case 'start': notes = [[261.63,329.63,392.00],[349.23,440.00,523.25],[293.66,369.99,440.00],[261.63,329.63,392.00]]; tempo = 2.5; break; case 'initial': notes = [[261.63,329.63],[293.66,369.99],[329.63,392.00],[349.23,440.00]]; tempo = 1.8; break; case 'semifinal': notes = [[293.66,369.99,440.00],[329.63,392.00,493.88],[349.23,440.00,523.25],[392.00,493.88,587.33]]; tempo = 1.4; break; case 'final': notes = [[349.23,440.00,523.25],[392.00,493.88,587.33],[440.00,523.25,659.25],[493.88,587.33,698.46]]; tempo = 1.2; break; case 'tiebreaker': notes = [[523.25,659.25],[493.88,587.33],[440.00,523.25],[392.00,493.88]]; tempo = 1.0; break; default: return; } let chordIndex = 0; const playChord = () => { if (!isMusicPlaying || currentPhase !== phase) return; const now = ac.currentTime; const chord = notes[chordIndex % notes.length]; chord.forEach(freq => { const osc = ac.createOscillator(); const gain = ac.createGain(); osc.connect(gain); gain.connect(currentGain); osc.type = 'sine'; osc.frequency.value = freq; gain.gain.setValueAtTime(0, now); gain.gain.linearRampToValueAtTime(0.12, now + 0.05); gain.gain.exponentialRampToValueAtTime(0.001, now + tempo - 0.1); osc.start(now); osc.stop(now + tempo); }); chordIndex++; }; playChord(); interval = setInterval(() => { if (isMusicPlaying && currentPhase === phase) playChord(); else if (!isMusicPlaying) clearInterval(interval); }, tempo * 1000); return interval; };
   let musicInterval = null;
-
-  const startBackgroundMusic = async (phase = 'start') => {
-    if (!phase) phase = 'start';
-    if (isMusicPlaying && currentPhase === phase) return;
-    
-    // Detener música actual
-    if (currentSource) {
-      try { currentSource.stop(); } catch(e) {}
-      currentSource = null;
-    }
-    if (musicInterval) {
-      clearInterval(musicInterval);
-      musicInterval = null;
-    }
-    if (currentGain) currentGain.disconnect();
-    
-    const ac = getCtx();
-    await resumeContext();
-    
-    currentPhase = phase;
-    const buffer = musicBuffers[phase];
-    
-    if (buffer) {
-      // Reproducir buffer personalizado
-      currentSource = ac.createBufferSource();
-      currentSource.buffer = buffer;
-      currentSource.loop = true;
-      currentGain = ac.createGain();
-      currentGain.gain.value = 0.3;
-      currentSource.connect(currentGain);
-      currentGain.connect(ac.destination);
-      currentSource.start();
-      isMusicPlaying = true;
-    } else {
-      // Usar música sintética por defecto
-      musicInterval = playDefaultMusicForPhase(phase, ac);
-      isMusicPlaying = true;
-    }
-  };
-
-  const stopBackgroundMusic = () => {
-    if (musicInterval) { clearInterval(musicInterval); musicInterval = null; }
-    if (currentSource) {
-      try { currentSource.stop(); } catch(e) {}
-      currentSource = null;
-    }
-    if (currentGain) {
-      currentGain.gain.linearRampToValueAtTime(0, (ctx?.currentTime || 0) + 0.5);
-      setTimeout(() => { if (currentGain) currentGain.disconnect(); }, 500);
-    }
-    isMusicPlaying = false;
-  };
-
-  const toggleMusic = async () => {
-    if (isMusicPlaying) {
-      stopBackgroundMusic();
-    } else {
-      await startBackgroundMusic(currentPhase || 'start');
-    }
-    return isMusicPlaying;
-  };
-  
-  const setMusicPhase = (phase) => {
-    if (isMusicPlaying) {
-      stopBackgroundMusic();
-      startBackgroundMusic(phase);
-    } else {
-      currentPhase = phase;
-    }
-  };
-
-  // IndexedDB
-  const openDB = () => {
-    return new Promise((resolve, reject) => {
-      if (db) return resolve(db);
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => { db = request.result; resolve(db); };
-      request.onupgradeneeded = (event) => {
-        const db = event.target.result;
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          db.createObjectStore(STORE_NAME);
-        }
-      };
-    });
-  };
-
-  const saveBufferToDB = async (key, arrayBuffer) => {
-    const database = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = database.transaction(STORE_NAME, 'readwrite');
-      const store = tx.objectStore(STORE_NAME);
-      const request = store.put(arrayBuffer, key);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
-  };
-
-  const loadBufferFromDB = async (key) => {
-    const database = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = database.transaction(STORE_NAME, 'readonly');
-      const store = tx.objectStore(STORE_NAME);
-      const request = store.get(key);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  };
-
-  const decodeToAudioBuffer = async (arrayBuffer) => {
-    if (!arrayBuffer) return null;
-    const ac = getCtx();
-    return await ac.decodeAudioData(arrayBuffer);
-  };
-
-  const setCustomSound = async (type, file) => {
-    const arrayBuffer = await file.arrayBuffer();
-    const copy = arrayBuffer.slice(0);
-    const audioBuffer = await decodeToAudioBuffer(arrayBuffer);
-    customBuffers[type] = audioBuffer;
-    await saveBufferToDB(type, copy);
-  };
-
-  const resetToDefaultSound = async (type) => {
-    customBuffers[type] = null;
-    await saveBufferToDB(type, null);
-  };
-
-  const setCustomMusic = async (phase, file) => {
-    if (!musicBuffers.hasOwnProperty(phase)) return;
-    const arrayBuffer = await file.arrayBuffer();
-    const copy = arrayBuffer.slice(0);
-    const audioBuffer = await decodeToAudioBuffer(arrayBuffer);
-    musicBuffers[phase] = audioBuffer;
-    await saveBufferToDB(`music_${phase}`, copy);
-    if (isMusicPlaying && currentPhase === phase) {
-      stopBackgroundMusic();
-      await startBackgroundMusic(phase);
-    }
-  };
-
-  const resetToDefaultMusic = async (phase) => {
-    if (!musicBuffers.hasOwnProperty(phase)) return;
-    musicBuffers[phase] = null;
-    await saveBufferToDB(`music_${phase}`, null);
-    if (isMusicPlaying && currentPhase === phase) {
-      stopBackgroundMusic();
-      await startBackgroundMusic(phase);
-    }
-  };
-
+  const startBackgroundMusic = async (phase = 'start') => { if (!phase) phase = 'start'; if (isMusicPlaying && currentPhase === phase) return; if (currentSource) { try { currentSource.stop(); } catch(e) {} currentSource = null; } if (musicInterval) { clearInterval(musicInterval); musicInterval = null; } if (currentGain) currentGain.disconnect(); const ac = getCtx(); await resumeContext(); currentPhase = phase; const buffer = musicBuffers[phase]; if (buffer) { currentSource = ac.createBufferSource(); currentSource.buffer = buffer; currentSource.loop = true; currentGain = ac.createGain(); currentGain.gain.value = 0.3; currentSource.connect(currentGain); currentGain.connect(ac.destination); currentSource.start(); isMusicPlaying = true; } else { musicInterval = playDefaultMusicForPhase(phase, ac); isMusicPlaying = true; } };
+  const stopBackgroundMusic = () => { if (musicInterval) { clearInterval(musicInterval); musicInterval = null; } if (currentSource) { try { currentSource.stop(); } catch(e) {} currentSource = null; } if (currentGain) { currentGain.gain.linearRampToValueAtTime(0, (ctx?.currentTime || 0) + 0.5); setTimeout(() => { if (currentGain) currentGain.disconnect(); }, 500); } isMusicPlaying = false; };
+  const toggleMusic = async () => { if (isMusicPlaying) stopBackgroundMusic(); else await startBackgroundMusic(currentPhase || 'start'); return isMusicPlaying; };
+  const setMusicPhase = (phase) => { if (isMusicPlaying) { stopBackgroundMusic(); startBackgroundMusic(phase); } else { currentPhase = phase; } };
+  const openDB = () => new Promise((resolve, reject) => { if (db) return resolve(db); const request = indexedDB.open(DB_NAME, DB_VERSION); request.onerror = () => reject(request.error); request.onsuccess = () => { db = request.result; resolve(db); }; request.onupgradeneeded = (event) => { const db = event.target.result; if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME); }; });
+  const saveBufferToDB = async (key, arrayBuffer) => { const database = await openDB(); return new Promise((resolve, reject) => { const tx = database.transaction(STORE_NAME, 'readwrite'); const store = tx.objectStore(STORE_NAME); const request = store.put(arrayBuffer, key); request.onsuccess = () => resolve(); request.onerror = () => reject(request.error); }); };
+  const loadBufferFromDB = async (key) => { const database = await openDB(); return new Promise((resolve, reject) => { const tx = database.transaction(STORE_NAME, 'readonly'); const store = tx.objectStore(STORE_NAME); const request = store.get(key); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); };
+  const decodeToAudioBuffer = async (arrayBuffer) => { if (!arrayBuffer) return null; const ac = getCtx(); return await ac.decodeAudioData(arrayBuffer); };
+  const setCustomSound = async (type, file) => { const arrayBuffer = await file.arrayBuffer(); const copy = arrayBuffer.slice(0); const audioBuffer = await decodeToAudioBuffer(arrayBuffer); customBuffers[type] = audioBuffer; await saveBufferToDB(type, copy); };
+  const resetToDefaultSound = async (type) => { customBuffers[type] = null; await saveBufferToDB(type, null); };
+  const setCustomMusic = async (phase, file) => { if (!musicBuffers.hasOwnProperty(phase)) return; const arrayBuffer = await file.arrayBuffer(); const copy = arrayBuffer.slice(0); const audioBuffer = await decodeToAudioBuffer(arrayBuffer); musicBuffers[phase] = audioBuffer; await saveBufferToDB(`music_${phase}`, copy); if (isMusicPlaying && currentPhase === phase) { stopBackgroundMusic(); await startBackgroundMusic(phase); } };
+  const resetToDefaultMusic = async (phase) => { if (!musicBuffers.hasOwnProperty(phase)) return; musicBuffers[phase] = null; await saveBufferToDB(`music_${phase}`, null); if (isMusicPlaying && currentPhase === phase) { stopBackgroundMusic(); await startBackgroundMusic(phase); } };
   const loadAllFromDB = async () => {
-    const soundTypes = ['correct', 'wrong', 'timeout', 'tick', 'fanfare', 'joker', 'countdown'];
+    const soundTypes = ['correct', 'wrong', 'timeout', 'tick', 'fanfare', 'joker', 'countdown', 'roundEnd'];
     for (const type of soundTypes) {
       const arrayBuffer = await loadBufferFromDB(type);
       if (arrayBuffer && arrayBuffer !== null) {
@@ -474,7 +292,6 @@ const AudioEngine = (() => {
         customBuffers[type] = null;
       }
     }
-    
     const musicPhases = ['start', 'initial', 'semifinal', 'final', 'tiebreaker'];
     for (const phase of musicPhases) {
       const arrayBuffer = await loadBufferFromDB(`music_${phase}`);
@@ -488,28 +305,8 @@ const AudioEngine = (() => {
       }
     }
   };
-
-  const init = async () => {
-    if (readyPromise) return readyPromise;
-    readyPromise = (async () => {
-      await loadAllFromDB();
-      isReady = true;
-    })();
-    return readyPromise;
-  };
-
-  // Inicialización automática
+  const init = async () => { if (readyPromise) return readyPromise; readyPromise = (async () => { await loadAllFromDB(); isReady = true; })(); return readyPromise; };
   init();
-
-  // Sonidos por defecto (síntesis)
-  const defaultCorrect = (ac) => { [523.25,659.25,783.99,1046.50].forEach((f,i)=>{const o=ac.createOscillator();const g=ac.createGain();o.connect(g);g.connect(ac.destination);o.type='sine';o.frequency.value=f;g.gain.setValueAtTime(0,ac.currentTime+i*0.12);g.gain.linearRampToValueAtTime(0.3,ac.currentTime+i*0.12+0.02);g.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+i*0.12+0.45);o.start(ac.currentTime+i*0.12);o.stop(ac.currentTime+i*0.12+0.45);}); };
-  const defaultWrong = (ac) => { [440,349.23,261.63].forEach((f,i)=>{const o=ac.createOscillator();const g=ac.createGain();o.connect(g);g.connect(ac.destination);o.type='sawtooth';o.frequency.value=f;g.gain.setValueAtTime(0,ac.currentTime+i*0.2);g.gain.linearRampToValueAtTime(0.35,ac.currentTime+i*0.2+0.02);g.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+i*0.2+0.25);o.start(ac.currentTime+i*0.2);o.stop(ac.currentTime+i*0.2+0.25);}); };
-  const defaultTimeout = (ac) => { [880,660,440,220].forEach((f,i)=>{const o=ac.createOscillator();const g=ac.createGain();o.connect(g);g.connect(ac.destination);o.type='square';o.frequency.value=f;g.gain.setValueAtTime(0,ac.currentTime+i*0.15);g.gain.linearRampToValueAtTime(0.2,ac.currentTime+i*0.15+0.01);g.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+i*0.15+0.2);o.start(ac.currentTime+i*0.15);o.stop(ac.currentTime+i*0.15+0.2);}); };
-  const defaultTick = (ac) => { const o=ac.createOscillator();const g=ac.createGain();o.connect(g);g.connect(ac.destination);o.type='square';o.frequency.value=880;g.gain.setValueAtTime(0,ac.currentTime);g.gain.linearRampToValueAtTime(0.1,ac.currentTime+0.01);g.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+0.08);o.start(ac.currentTime);o.stop(ac.currentTime+0.08); };
-  const defaultFanfare = (ac) => { [523,659,784,1047,1319].forEach((f,i)=>{const o=ac.createOscillator();const g=ac.createGain();o.connect(g);g.connect(ac.destination);o.type='sine';o.frequency.value=f;g.gain.setValueAtTime(0,ac.currentTime+i*0.1);g.gain.linearRampToValueAtTime(0.4,ac.currentTime+i*0.1+0.02);g.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+i*0.1+0.3);o.start(ac.currentTime+i*0.1);o.stop(ac.currentTime+i*0.1+0.3);}); };
-  const defaultJoker = (ac) => { [800,1000,1200,1500].forEach((f,i)=>{const o=ac.createOscillator();const g=ac.createGain();o.connect(g);g.connect(ac.destination);o.type='sine';o.frequency.value=f;g.gain.setValueAtTime(0,ac.currentTime+i*0.08);g.gain.linearRampToValueAtTime(0.25,ac.currentTime+i*0.08+0.01);g.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+i*0.08+0.2);o.start(ac.currentTime+i*0.08);o.stop(ac.currentTime+i*0.08+0.2);}); };
-  const defaultCountdown = (ac) => { const o=ac.createOscillator();const g=ac.createGain();o.connect(g);g.connect(ac.destination);o.type='sine';o.frequency.value=1200;g.gain.setValueAtTime(0,ac.currentTime);g.gain.linearRampToValueAtTime(0.3,ac.currentTime+0.01);g.gain.exponentialRampToValueAtTime(0.001,ac.currentTime+0.1);o.start(ac.currentTime);o.stop(ac.currentTime+0.1); };
-
   return {
     correct() { playSound('correct', defaultCorrect); },
     wrong() { playSound('wrong', defaultWrong); },
@@ -518,6 +315,7 @@ const AudioEngine = (() => {
     fanfare() { playSound('fanfare', defaultFanfare); },
     joker() { playSound('joker', defaultJoker); },
     countdown() { playSound('countdown', defaultCountdown); },
+    roundEnd() { playSound('roundEnd', defaultRoundEnd); },
     startMusic: startBackgroundMusic,
     stopMusic: stopBackgroundMusic,
     toggleMusic,
@@ -528,26 +326,108 @@ const AudioEngine = (() => {
     setCustomMusic,
     resetToDefaultMusic,
     getCustomSoundStatus: () => ({ ...customBuffers, ...musicBuffers }),
-    playTestSound: (type) => {
-      if (type.startsWith('music_')) {
-        const phase = type.replace('music_', '');
-        if (isMusicPlaying) stopBackgroundMusic();
-        startBackgroundMusic(phase);
-        setTimeout(() => { if (isMusicPlaying) stopBackgroundMusic(); }, 5000);
-      } else {
-        if (type === 'correct') AudioEngine.correct();
-        else if (type === 'wrong') AudioEngine.wrong();
-        else if (type === 'timeout') AudioEngine.timeout();
-        else if (type === 'tick') AudioEngine.tick();
-        else if (type === 'fanfare') AudioEngine.fanfare();
-        else if (type === 'joker') AudioEngine.joker();
-        else if (type === 'countdown') AudioEngine.countdown();
-      }
-    },
+    playTestSound: (type) => { if (type.startsWith('music_')) { const phase = type.replace('music_', ''); if (isMusicPlaying) stopBackgroundMusic(); startBackgroundMusic(phase); setTimeout(() => { if (isMusicPlaying) stopBackgroundMusic(); }, 5000); } else { if (type === 'correct') AudioEngine.correct(); else if (type === 'wrong') AudioEngine.wrong(); else if (type === 'timeout') AudioEngine.timeout(); else if (type === 'tick') AudioEngine.tick(); else if (type === 'fanfare') AudioEngine.fanfare(); else if (type === 'joker') AudioEngine.joker(); else if (type === 'countdown') AudioEngine.countdown(); else if (type === 'roundEnd') AudioEngine.roundEnd(); } },
     init,
     isReady: () => isReady
   };
 })();
+
+/* ═══════════════════════════════════════════════════════ GLOBAL INDEXEDDB HELPERS para torneo y preguntas ══ */
+const GAME_DB_NAME = 'DiloGameDB';
+const GAME_DB_VERSION = 1;
+const GAME_STATE_STORE = 'gameState';
+const QUESTIONS_STORE = 'questions';
+let gameDB = null;
+
+const openGameDB = () => new Promise((resolve, reject) => {
+  if (gameDB) return resolve(gameDB);
+  const request = indexedDB.open(GAME_DB_NAME, GAME_DB_VERSION);
+  request.onerror = () => reject(request.error);
+  request.onsuccess = () => { gameDB = request.result; resolve(gameDB); };
+  request.onupgradeneeded = (event) => {
+    const db = event.target.result;
+    if (!db.objectStoreNames.contains(GAME_STATE_STORE)) {
+      db.createObjectStore(GAME_STATE_STORE);
+    }
+    if (!db.objectStoreNames.contains(QUESTIONS_STORE)) {
+      db.createObjectStore(QUESTIONS_STORE, { keyPath: 'id' });
+    }
+  };
+});
+
+const saveGameStateToDB = async (state) => {
+  const db = await openGameDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(GAME_STATE_STORE, 'readwrite');
+    const store = tx.objectStore(GAME_STATE_STORE);
+    const request = store.put(state, 'current');
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const loadGameStateFromDB = async () => {
+  const db = await openGameDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(GAME_STATE_STORE, 'readonly');
+    const store = tx.objectStore(GAME_STATE_STORE);
+    const request = store.get('current');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const saveQuestionsToDB = async (questions) => {
+  const db = await openGameDB();
+  const tx = db.transaction(QUESTIONS_STORE, 'readwrite');
+  const store = tx.objectStore(QUESTIONS_STORE);
+  const clearRequest = store.clear();
+  return new Promise((resolve, reject) => {
+    clearRequest.onsuccess = () => {
+      let completed = 0;
+      if (questions.length === 0) { resolve(); return; }
+      questions.forEach(q => {
+        const addReq = store.put(q);
+        addReq.onsuccess = () => {
+          completed++;
+          if (completed === questions.length) resolve();
+        };
+        addReq.onerror = (e) => reject(e);
+      });
+    };
+    clearRequest.onerror = (e) => reject(e);
+  });
+};
+
+const loadQuestionsFromDB = async () => {
+  const db = await openGameDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(QUESTIONS_STORE, 'readonly');
+    const store = tx.objectStore(QUESTIONS_STORE);
+    const request = store.getAll();
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const migrateFromLocalStorage = async () => {
+  const savedGame = localStorage.getItem('dilo_como_es_save');
+  if (savedGame) {
+    try {
+      const gameState = JSON.parse(savedGame);
+      await saveGameStateToDB(gameState);
+      localStorage.removeItem('dilo_como_es_save');
+    } catch(e) { console.warn('Error migrando partida', e); }
+  }
+  const savedQuestions = localStorage.getItem('dilo_como_es_questions');
+  if (savedQuestions) {
+    try {
+      const questions = JSON.parse(savedQuestions);
+      await saveQuestionsToDB(questions);
+      localStorage.removeItem('dilo_como_es_questions');
+    } catch(e) { console.warn('Error migrando preguntas', e); }
+  }
+};
 
 /* ═══════════════════════════════════════════════════════ SCORE FLOAT ══ */
 function ScoreFloat({value, color, x, y, onDone}) {
@@ -555,7 +435,7 @@ function ScoreFloat({value, color, x, y, onDone}) {
   return ( <div className="float-score" style={{ left: x, top: y, color, textShadow: `0 0 15px ${color}` }}>{value>0?`+${value}`:value}</div> );
 }
 
-/* ═══════════════════════════════════════════════════════ TIMER ══ */
+/* ═══════════════════════════════════════════════════════ TIMER (con soporte para extraTime) ══ */
 function Timer({seconds, running, onEnd, tkey, size="sm", extraTime=0}) {
   const [rem, setRem] = useState(seconds + extraTime);
   const ref = useRef();
@@ -580,7 +460,7 @@ function Timer({seconds, running, onEnd, tkey, size="sm", extraTime=0}) {
   </div> );
 }
 
-/* ═══════════════════════════════════════════════════════ WAIT SCREEN (con logo grande) ══ */
+/* ═══════════════════════════════════════════════════════ WAIT SCREEN (reutilizable) ══ */
 function WaitScreen({roundName, teams, onClose}) {
   const active = teams.filter(t=>!t.eliminated);
   const [tick, setTick] = useState(0);
@@ -623,8 +503,8 @@ function RoundHistory({history}) {
   </div> );
 }
 
-/* ═══════════════════════════════════════════════════════ TIE-BREAKER (con cambio de música) ══ */
-function TieBreaker({teams, teamIndexes, onClose, onAwardPoints, addLog}) {
+/* ═══════════════════════════════════════════════════════ TIE-BREAKER (versión operador, con estado para proyector y temporizador corregido) ══ */
+function TieBreaker({teams, teamIndexes, onClose, onAwardPoints, addLog, onStateChange}) {
   const [phase, setPhase] = useState("setup");
   const [word, setWord] = useState("");
   const [running, setRunning] = useState(false);
@@ -632,19 +512,43 @@ function TieBreaker({teams, teamIndexes, onClose, onAwardPoints, addLog}) {
   const [winner, setWinner] = useState(null);
   const activeTeams = teamIndexes.map(i=>teams[i]).filter(Boolean);
   
-  useEffect(() => {
-    // Al abrir el desempate, cambiar música a fase tiebreaker
+  useEffect(() => { 
     AudioEngine.setMusicPhase('tiebreaker');
-    return () => {
-      // Al cerrar, volver a la música de la ronda actual (se maneja desde GameView)
-    };
   }, []);
   
-  const start = () => { if (!word.trim()) return; setPhase("active"); setRunning(true); setTkey(k=>k+1); addLog(`Desempate iniciado: "${word}"`); AudioEngine.joker(); };
-  const award = (ti) => { setWinner(ti); setPhase("done"); setRunning(false); onAwardPoints(ti, 500); AudioEngine.fanfare(); addLog(`🏆 Desempate: ${activeTeams[ti]?.name} gana +500 pts`); };
-  const handleClose = () => {
-    onClose();
+  // Notificar cambios de estado al padre (para el proyector)
+  const notifyState = useCallback(() => {
+    if (onStateChange) {
+      onStateChange({ phase, word, running, tkey, winner, teams: activeTeams, teamIndexes });
+    }
+  }, [phase, word, running, tkey, winner, activeTeams, teamIndexes, onStateChange]);
+  
+  useEffect(() => {
+    notifyState();
+  }, [notifyState]);
+  
+  const start = () => { 
+    if (!word.trim()) return; 
+    setPhase("active"); 
+    setRunning(true); 
+    setTkey(k=>k+1); 
+    addLog(`Desempate iniciado: "${word}"`); 
+    AudioEngine.joker(); 
   };
+  
+  const award = (ti) => { 
+    setWinner(ti); 
+    setPhase("done"); 
+    setRunning(false); 
+    onAwardPoints(ti, 500); 
+    AudioEngine.fanfare(); 
+    addLog(`🏆 Desempate: ${activeTeams[ti]?.name} gana +500 pts`); 
+  };
+  
+  const handleClose = () => { 
+    onClose(); 
+  };
+  
   return ( <div style={{ position:"fixed", inset:0, zIndex:9500, background: C.surfaceContainerLowest, backdropFilter:"blur(20px)", display:"flex", alignItems:"center", justifyContent:"center" }}> <div style={{ background: C.surfaceContainer, border: `2px solid ${C.tertiary}`, borderRadius: 24, padding: 28, maxWidth: 520, width:"90%", boxShadow: `0 0 60px ${C.tertiary}30`, backdropFilter:"blur(8px)" }}> <div style={{textAlign:"center", marginBottom:20}}> <div style={{fontSize:11, color:C.tertiary, letterSpacing:3, fontWeight:700}}>DESEMPATE</div> <div style={{fontSize:26, fontWeight:900, fontFamily:"'Hanken Grotesk', sans-serif"}}>Palabra por Palabra</div> <div style={{fontSize:12, color:C.outline, marginTop:4}}>El equipo que recite primero y correctamente gana 500 pts</div> </div>
       {phase === "setup" && ( <> <div style={{marginBottom:16}}> <div style={{fontSize:10, color:C.outline, letterSpacing:1, marginBottom:6}}>VERSÍCULO / TEXTO</div> <textarea value={word} onChange={e=>setWord(e.target.value)} rows={3} style={{ width:"100%", background: C.surfaceContainerHigh, border:`1px solid ${C.outlineVariant}`, borderRadius:12, color:C.onSurface, fontSize:12, padding:"10px 12px", fontFamily:"'Inter', sans-serif" }}/> </div> <div style={{marginBottom:18}}> <div style={{fontSize:10, color:C.outline, letterSpacing:1, marginBottom:8}}>EQUIPOS</div> {activeTeams.map((t,i)=> <div key={i} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 10px", background: C.surfaceContainerLow, borderRadius:12, marginBottom:5, borderLeft: `4px solid ${TC[teamIndexes[i]%TC.length]}` }}> <span style={{fontSize:12, color:C.onSurface}}>{t.name}</span> <span style={{marginLeft:"auto", fontFamily:"'JetBrains Mono', monospace", fontSize:12}}>{t.score.toLocaleString()} pts</span> </div> )} </div> <div style={{display:"flex", gap:10}}> <button onClick={start} disabled={!word.trim()} style={{ flex:1, background: word.trim() ? C.tertiary : C.outlineVariant, color: word.trim() ? C.onTertiary : C.outline, border:"none", borderRadius:40, padding:"12px", fontSize:13, fontWeight:800, cursor: word.trim() ? "pointer":"default" }}>▶ Iniciar</button> <button onClick={handleClose} style={{ background:"transparent", color:C.outline, border:`1px solid ${C.outlineVariant}`, borderRadius:40, padding:"12px", fontSize:12, cursor:"pointer" }}>Cancelar</button> </div> </> )}
       {phase === "active" && ( <> <div style={{ background: C.surfaceContainerHigh, borderRadius: 16, padding:"16px 20px", marginBottom:18, textAlign:"center" }}> <div style={{fontSize:11, color:C.tertiary, letterSpacing:2}}>RECITAR:</div> <div style={{fontSize:16, fontWeight:600, fontFamily:"'Inter', sans-serif"}}>{word}</div> </div> <div style={{display:"flex", justifyContent:"center", marginBottom:18}}> <Timer seconds={30} running={running} onEnd={()=>{setRunning(false);setPhase("done");}} tkey={tkey} size="lg"/> </div> <div style={{fontSize:10, color:C.outline, textAlign:"center", marginBottom:8}}>¿QUIÉN LO DIJO CORRECTAMENTE?</div> <div style={{display:"flex", gap:8, marginBottom:10}}> {activeTeams.map((t,i)=> <button key={i} onClick={()=>award(i)} style={{ flex:1, background: TC[teamIndexes[i]%TC.length] + '20', border:`2px solid ${TC[teamIndexes[i]%TC.length]}`, borderRadius:40, padding:"10px", fontSize:12, fontWeight:700, cursor:"pointer" }}>✓ {t.name}</button> )} </div> <button onClick={()=>{setPhase("done");setRunning(false);addLog("Desempate sin ganador");}} style={{ width:"100%", background:"transparent", color:C.outline, border:`1px solid ${C.outlineVariant}`, borderRadius:40, padding:"8px", fontSize:11, cursor:"pointer" }}>Sin ganador / Empate</button> </> )}
@@ -652,15 +556,112 @@ function TieBreaker({teams, teamIndexes, onClose, onAwardPoints, addLog}) {
     </div> </div> );
 }
 
-/* ═══════════════════════════════════════════════════════ PROJECTOR VIEW (con letras fijas y nombre equipo) ══ */
+/* ═══════════════════════════════════════════════════════ PROJECTOR VIEW (con pantalla de transición manual) ══ */
 function ProjectorView() {
-  const [state, setState] = useState({ curQ: null, showAnswer: false, resolved: false, sel: {}, remaining: 0, running: false, teams: [], activeMatchTeams: [], matchTeamIndices: [] });
-  useEffect(() => { const handler = (e) => { if (e.data?.type === 'PROJECTOR_UPDATE') setState(e.data.payload); }; window.addEventListener('message', handler); if (window.opener) window.opener.postMessage({ type: 'PROJECTOR_READY' }, '*'); return () => window.removeEventListener('message', handler); }, []);
-  const { curQ, showAnswer, resolved, sel, remaining, running, teams, activeMatchTeams, matchTeamIndices } = state;
+  const [state, setState] = useState({ 
+    curQ: null, showAnswer: false, resolved: false, sel: {}, remaining: 0, running: false, 
+    teams: [], activeMatchTeams: [], matchTeamIndices: [], hiddenOptions: null, extraTime: 0, 
+    responseMode: 'all', activeResponderTeamIdx: null,
+    showWait: false, roundName: '', 
+    showTie: false, tiePhase: 'setup', tieWord: '', tieRunning: false, tieTkey: 0, tieWinner: null, tieTeams: [], tieTeamIndexes: [],
+    projectorClear: false  // Modo pantalla limpia (transición)
+  });
+  useEffect(() => { 
+    const handler = (e) => { 
+      if (e.data?.type === 'PROJECTOR_UPDATE') {
+        setState(prev => ({ ...prev, ...e.data.payload }));
+      }
+    }; 
+    window.addEventListener('message', handler); 
+    if (window.opener) window.opener.postMessage({ type: 'PROJECTOR_READY' }, '*'); 
+    return () => window.removeEventListener('message', handler); 
+  }, []);
+  const { 
+    curQ, showAnswer, resolved, sel, remaining, running, teams, activeMatchTeams, matchTeamIndices, hiddenOptions, extraTime, 
+    responseMode, activeResponderTeamIdx, showWait, roundName, 
+    showTie, tiePhase, tieWord, tieRunning, tieTkey, tieWinner, tieTeams, tieTeamIndexes,
+    projectorClear
+  } = state;
   const allTeams = teams.filter(t => !t.eliminated).sort((a,b)=>b.score-a.score);
   const matchTeams = activeMatchTeams.length ? activeMatchTeams : allTeams.slice(0,2);
   const mIdxs = matchTeamIndices.length ? matchTeamIndices : matchTeams.map((_,i)=>i);
   const getTeamLetter = (globalIdx) => String.fromCharCode(65 + globalIdx);
+  const getVisibleOptions = () => {
+    if (!curQ || !curQ.options) return [];
+    if (!hiddenOptions || hiddenOptions.length === 0) return curQ.options.map((opt, idx) => ({ opt, idx, letter: ['A','B','C','D'][idx] }));
+    return curQ.options.filter((_, idx) => !hiddenOptions.includes(idx)).map((opt, idx) => {
+      const originalIdx = curQ.options.findIndex(o => o === opt);
+      return { opt, idx: originalIdx, letter: ['A','B','C','D'][originalIdx] };
+    });
+  };
+  
+  // Pantalla de espera (ronda)
+  if (showWait) {
+    return <WaitScreen roundName={roundName} teams={teams} onClose={() => {}} />;
+  }
+  // Desempate simplificado para público
+  if (showTie) {
+    const activeTieTeams = (tieTeams || []).filter(t => !t.eliminated);
+    return (
+      <div style={{ position:"fixed", inset:0, zIndex:9500, background: C.surfaceContainerLowest, backdropFilter:"blur(12px)", display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden" }}>
+        <div className="tie-container">
+          <div style={{fontSize:24, fontWeight:800, color:C.tertiary, marginBottom:12}}>⚡ DESEMPATE</div>
+          <div style={{fontSize:14, color:C.outline, marginBottom:24}}>El primer equipo que recite correctamente gana 500 pts</div>
+          
+          <div className="tie-word">
+            <div style={{fontSize:12, color:C.tertiary, letterSpacing:2, marginBottom:8}}>RECITAR:</div>
+            <div style={{fontSize:20, fontWeight:600}}>{tieWord || "..."}</div>
+          </div>
+          
+          <div style={{display:"flex", justifyContent:"center", marginBottom:24}}>
+            <Timer seconds={30} running={tieRunning} onEnd={()=>{}} tkey={tieTkey} size="lg" />
+          </div>
+          
+          {tiePhase === 'active' && (
+            <div className="tie-teams">
+              {activeTieTeams.map((t,i) => (
+                <div key={i} className="tie-team-card" style={{borderLeft: `4px solid ${TC[t.globalIdx % TC.length]}`}}>
+                  <div style={{fontSize:14, fontWeight:600}}>{t.name}</div>
+                  <div style={{fontSize:12, color:C.outline}}>Esperando respuesta...</div>
+                </div>
+              ))}
+            </div>
+          )}
+          
+          {tiePhase === 'done' && (
+            <div style={{marginTop:24}}>
+              {tieWinner !== null && tieWinner >= 0 && activeTieTeams[tieWinner] ? (
+                <div style={{background: `${C.tertiary}20`, borderRadius: 40, padding: '16px', border: `1px solid ${C.tertiary}`}}>
+                  <div style={{fontSize:48}}>🏆</div>
+                  <div style={{fontSize:24, fontWeight:800, color:C.tertiary}}>{activeTieTeams[tieWinner]?.name}</div>
+                  <div style={{fontSize:16, color:C.outline}}>Gana el desempate +500 pts</div>
+                </div>
+              ) : (
+                <div style={{fontSize:20, fontWeight:600, color:C.warn}}>🤝 Empate - Sin ganador</div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+  
+  // Pantalla de transición manual (limpia)
+  if (projectorClear) {
+    return (
+      <div style={{ background: C.bg, minHeight: '100vh', color: C.onSurface, fontFamily: "'Inter', sans-serif", display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: "center" }}>
+          <svg viewBox="0 0 3450 1313" style={{ height: '120px', width: 'auto', marginBottom: '20px' }}>
+            <use href="#logo-svg-defs" />
+          </svg>
+          <div style={{ fontSize: 40, fontWeight: 800, fontFamily: "'Hanken Grotesk', sans-serif", letterSpacing: -2, color: C.secondary }}>PREPÁRATE</div>
+          <div style={{ fontSize: 24, marginTop: 16, color: C.outline }}>Siguiente pregunta en breve...</div>
+        </div>
+      </div>
+    );
+  }
+  
+  // Pantalla normal de preguntas (igual que antes)
   return ( <div style={{ background: C.bg, minHeight: '100vh', color: C.onSurface, fontFamily: "'Inter', sans-serif", display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
     <div style={{ position: "fixed", top: 20, right: 30, zIndex: 100, background: C.surfaceContainer, padding: "6px 16px", borderRadius: 40, border: `1px solid ${C.primary}`, backdropFilter: "blur(8px)" }}><span className="live-dot"></span><span style={{ fontSize: 12, fontWeight: 700 }}>LIVE</span></div>
     <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 16, background: C.surfaceContainerLow, padding: "16px 32px", borderBottom: `2px solid ${curQ ? SC[curQ.stage]?.color : C.primary}` }}>
@@ -672,28 +673,37 @@ function ProjectorView() {
           <div style={{ fontSize: 42, fontWeight: 700, fontFamily: "'Hanken Grotesk', sans-serif", lineHeight: 1.4, marginBottom: 32, textAlign: "center" }}>{curQ.text}</div>
           {curQ.options && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
-              {curQ.options.map((opt,i)=>{ const letter=["A","B","C","D"][i]; const isOk = letter===curQ.answer; const picked = matchTeams.filter((_,ti)=>sel?.[ti]===letter); let bg = C.surfaceContainerHigh, bc = C.outlineVariant; if(resolved){ if(isOk){ bg = C.primaryContainer; bc = C.primary; } else if(picked.length){ bg = C.errorContainer; bc = C.error; } } else if(picked.length){ bg = C.secondaryContainer; bc = C.secondary; } return ( 
-                <div key={i} className="option-fade-in" style={{ animationDelay: `${i * 0.07}s`, background: bg, border: `2px solid ${bc}`, borderRadius: 20, padding: "20px 24px", display: "flex", alignItems: "center", gap: 20, transition: "all 0.2s", backdropFilter: "blur(4px)" }}>
-                  <span style={{ width: 56, height: 56, borderRadius: "50%", background: resolved && isOk ? C.primary : "rgba(255,255,255,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 800 }}>{letter}</span>
-                  <span style={{ fontSize: 26, flex: 1 }}>{opt}</span>
-                  {picked.length>0 && (
-                    <div style={{ display: "flex", gap: 10 }}>
-                      {picked.map((_,ti)=> {
-                        const globalIdx = mIdxs[ti];
-                        const teamLetter = getTeamLetter(globalIdx);
-                        return <div key={ti} style={{ width: 44, height: 44, borderRadius: "50%", background: TC[globalIdx % TC.length], display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: "#000", flexDirection: "column" }}>{teamLetter}<span style={{fontSize:9}}>{matchTeams[ti]?.name}</span></div>
-                      })}
-                    </div>
-                  )}
-                  {resolved && isOk && <span style={{ fontSize: 32 }}>✓</span>}
-                </div>
-              ); })}
+              {getVisibleOptions().map(({ opt, idx, letter }) => {
+                const isOk = letter === curQ.answer;
+                const picked = matchTeams.filter((_,ti)=>sel?.[ti]===letter);
+                let bg = C.surfaceContainerHigh, bc = C.outlineVariant;
+                if(resolved){
+                  if(isOk){ bg = C.primaryContainer; bc = C.primary; }
+                  else if(picked.length){ bg = C.errorContainer; bc = C.error; }
+                } else if(picked.length){ bg = C.secondaryContainer; bc = C.secondary; }
+                return (
+                  <div key={idx} className="option-fade-in" style={{ animationDelay: `${idx * 0.07}s`, background: bg, border: `2px solid ${bc}`, borderRadius: 20, padding: "20px 24px", display: "flex", alignItems: "center", gap: 20, transition: "all 0.2s", backdropFilter: "blur(4px)" }}>
+                    <span style={{ width: 56, height: 56, borderRadius: "50%", background: resolved && isOk ? C.primary : "rgba(255,255,255,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 800 }}>{letter}</span>
+                    <span style={{ fontSize: 26, flex: 1 }}>{opt}</span>
+                    {picked.length>0 && (
+                      <div style={{ display: "flex", gap: 10 }}>
+                        {picked.map((_,ti)=> {
+                          const globalIdx = mIdxs[ti];
+                          const teamLetter = getTeamLetter(globalIdx);
+                          return <div key={ti} style={{ width: 44, height: 44, borderRadius: "50%", background: TC[globalIdx % TC.length], display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: "#000", flexDirection: "column" }}>{teamLetter}<span style={{fontSize:9}}>{matchTeams[ti]?.name}</span></div>
+                        })}
+                      </div>
+                    )}
+                    {resolved && isOk && <span style={{ fontSize: 32 }}>✓</span>}
+                  </div>
+                );
+              })}
             </div>
           )}
           {!curQ.options && showAnswer && ( <div style={{ background: `${C.primary}20`, border: `2px solid ${C.primary}`, borderRadius: 28, padding: "28px 40px", textAlign: "center" }}> <div style={{ fontSize: 18, color: C.primary, letterSpacing: 2 }}>RESPUESTA CORRECTA</div> <div style={{ fontSize: 28, marginTop: 12 }}>{curQ.answer}</div> </div> )}
           {!curQ.options && !showAnswer && !resolved && ( <div style={{ textAlign: "center", marginTop: 40, fontFamily: "'JetBrains Mono', monospace", fontSize: 32, color: C.outline }}>— — —</div> )}
         </div>
-        <div style={{ flexShrink: 0 }}> <Timer seconds={SC[curQ.stage].time} running={running} onEnd={()=>{}} tkey={remaining} size="lg" /> </div>
+        <div style={{ flexShrink: 0 }}> <Timer seconds={SC[curQ.stage].time} running={running} onEnd={()=>{}} tkey={remaining} extraTime={extraTime || 0} size="lg" /> </div>
       </> ) : ( 
         <div style={{ textAlign: "center" }}>
           <svg viewBox="0 0 3450 1313" style={{ height: '120px', width: 'auto', marginBottom: '20px' }}>
@@ -708,26 +718,31 @@ function ProjectorView() {
   </div> );
 }
 
-/* ═══════════════════════════════════════════════════════ MATCH BOARD (con letras fijas) ══ */
-function MatchBoard({activeTeams, teamIndexes, setTeams, addLog, onPaso, onScoreAnim, teamCardRefs, onUseComodin}) {
+/* ═══════════════════════════════════════════════════════ MATCH BOARD (con indicador de turno y racha) ══ */
+function MatchBoard({activeTeams, teamIndexes, setTeams, addLog, onPaso, onScoreAnim, teamCardRefs, onUseComodin, responseMode, activeResponderTeamIdx}) {
   const getTeamLetter = (globalIdx) => String.fromCharCode(65 + globalIdx);
   const handle = (ti, pts, ji) => {
     const ri = teamIndexes[ti];
     if (pts === "joker") { onUseComodin(ti, ji); return; }
-    if (pts === "paso") { setTeams(ts=>ts.map((t,i)=>i===ri?{...t,pasoUsed:true}:t)); addLog(`${activeTeams[ti].name} usó PASO`); onPaso(); return; }
-    setTeams(ts=>ts.map((t,i)=>i===ri?{...t,score:t.score+pts}:t));
+    if (pts === "paso") { 
+      setTeams(ts=>ts.map((t,i)=>i===ri?{...t,pasoUsed:true, streak:0}:t)); 
+      addLog(`${activeTeams[ti].name} usó PASO (racha reiniciada)`); 
+      onPaso(); 
+      return; 
+    }
+    setTeams(ts=>ts.map((t,i)=>i===ri?{...t, score:t.score+pts, streak: pts>0 ? (t.streak||0)+1 : 0}:t));
     addLog(`${activeTeams[ti].name}: ${pts>0?"+":""}${pts} pts`);
     if (onScoreAnim) onScoreAnim(ti, pts);
     if (pts > 0) AudioEngine.correct(); else AudioEngine.wrong();
   };
-  return ( <div className="match-board-grid" style={{display:"grid", gridTemplateColumns:`repeat(${activeTeams.length},1fr)`, gap:12}}> {activeTeams.map((t,i)=>{ const globalIdx = teamIndexes[i]; const col = TC[globalIdx % TC.length]; const teamLetter = getTeamLetter(globalIdx); return ( <div key={i} ref={el=>{ if(teamCardRefs) teamCardRefs.current[i]=el; }} style={{ background: C.surfaceContainer, border: `1px solid ${col}60`, borderRadius: 20, padding: "14px 12px", textAlign:"center", backdropFilter: "blur(4px)", transition: "0.2s" }}> <div style={{ fontSize: 11, letterSpacing: 1, color: col, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>EQ {teamLetter}</div> <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>{t.name}</div> <div style={{ fontSize: 32, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", color: col, fontVariantNumeric:"tabular-nums" }}>{t.score.toLocaleString()}</div> <div style={{ fontSize: 9, color: C.outline, marginBottom: 12 }}>pts</div> <div style={{ display:"flex", gap: 6, justifyContent:"center", flexWrap:"wrap", marginBottom: 12 }}> {[100,200,500,-50,-100,-200].map(p=>( <button key={p} onClick={()=>handle(i,p)} style={{ background: p>0 ? `${C.primary}20` : `${C.error}20`, border: `1px solid ${p>0 ? C.primary : C.error}`, color: p>0 ? C.primary : C.error, borderRadius: 40, padding:"3px 10px", fontSize:11, fontWeight:600, cursor:"pointer" }}>{p>0?"+":""}{p}</button> ))} </div> <div style={{ fontSize: 9, color: C.outline, marginBottom: 6 }}>Comodines</div> <div style={{ display:"flex", gap: 6, justifyContent:"center", marginBottom: 8 }}> {["50/50","Cap","Cmb"].map((j,ji)=>( <button key={ji} onClick={()=>handle(i,"joker",ji)} disabled={t.jokers[ji]} style={{ background: t.jokers[ji] ? "rgba(255,255,255,0.03)" : `${C.accent2}20`, border: `1px solid ${t.jokers[ji] ? C.outlineVariant : C.secondary}`, color: t.jokers[ji] ? C.outline : C.secondary, borderRadius: 40, padding:"3px 10px", fontSize:10, cursor: t.jokers[ji] ? "default" : "pointer", textDecoration: t.jokers[ji] ? "line-through" : "none" }}>{j}</button> ))} </div> <button onClick={()=>handle(i,"paso")} disabled={t.pasoUsed} style={{ width:"100%", background: t.pasoUsed ? "rgba(255,255,255,0.03)" : `${C.tertiary}20`, border: `1px solid ${t.pasoUsed ? C.outlineVariant : C.tertiary}`, color: t.pasoUsed ? C.outline : C.tertiary, borderRadius: 40, padding:"5px", fontSize:10, cursor: t.pasoUsed ? "default" : "pointer", textDecoration: t.pasoUsed ? "line-through" : "none" }}>PASO</button> </div> ); })} </div> );
+  return ( <div className="match-board-grid" style={{display:"grid", gridTemplateColumns:`repeat(${activeTeams.length},1fr)`, gap:12}}> {activeTeams.map((t,i)=>{ const globalIdx = teamIndexes[i]; const col = TC[globalIdx % TC.length]; const teamLetter = getTeamLetter(globalIdx); const isTurn = (responseMode === "single" && activeResponderTeamIdx === i); return ( <div key={i} ref={el=>{ if(teamCardRefs) teamCardRefs.current[i]=el; }} style={{ background: C.surfaceContainer, border: `1px solid ${col}60`, borderRadius: 20, padding: "14px 12px", textAlign:"center", backdropFilter: "blur(4px)", transition: "0.2s", ...(isTurn ? { border: '3px solid #97df5c', boxShadow: '0 0 20px #97df5c' } : {}) }}> <div style={{ fontSize: 11, letterSpacing: 1, color: col, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>EQ {teamLetter}</div> <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>{t.name}</div> <div style={{ fontSize: 32, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", color: col, fontVariantNumeric:"tabular-nums" }}>{t.score.toLocaleString()}</div> <div style={{ fontSize: 12, color: col, marginBottom: 8 }}>🔥 {t.streak || 0}</div> <div style={{ fontSize: 9, color: C.outline, marginBottom: 12 }}>pts</div> <div style={{ display:"flex", gap: 6, justifyContent:"center", flexWrap:"wrap", marginBottom: 12 }}> {[100,200,500,-50,-100,-200].map(p=>( <button key={p} onClick={()=>handle(i,p)} style={{ background: p>0 ? `${C.primary}20` : `${C.error}20`, border: `1px solid ${p>0 ? C.primary : C.error}`, color: p>0 ? C.primary : C.error, borderRadius: 40, padding:"3px 10px", fontSize:11, fontWeight:600, cursor:"pointer" }}>{p>0?"+":""}{p}</button> ))} </div> <div style={{ fontSize: 9, color: C.outline, marginBottom: 6 }}>Comodines</div> <div style={{ display:"flex", gap: 6, justifyContent:"center", marginBottom: 8 }}> {["50/50","Cap","Cmb"].map((j,ji)=>( <button key={ji} onClick={()=>handle(i,"joker",ji)} disabled={t.jokers[ji]} style={{ background: t.jokers[ji] ? "rgba(255,255,255,0.03)" : `${C.accent2}20`, border: `1px solid ${t.jokers[ji] ? C.outlineVariant : C.secondary}`, color: t.jokers[ji] ? C.outline : C.secondary, borderRadius: 40, padding:"3px 10px", fontSize:10, cursor: t.jokers[ji] ? "default" : "pointer", textDecoration: t.jokers[ji] ? "line-through" : "none" }}>{j}</button> ))} </div> <button onClick={()=>handle(i,"paso")} disabled={t.pasoUsed} style={{ width:"100%", background: t.pasoUsed ? "rgba(255,255,255,0.03)" : `${C.tertiary}20`, border: `1px solid ${t.pasoUsed ? C.outlineVariant : C.tertiary}`, color: t.pasoUsed ? C.outline : C.tertiary, borderRadius: 40, padding:"5px", fontSize:10, cursor: t.pasoUsed ? "default" : "pointer", textDecoration: t.pasoUsed ? "line-through" : "none" }}>PASO</button> </div> ); })} </div> );
 }
 
-/* ═══════════════════════════════════════════════════════ TournamentMgr (con cambio de música al avanzar ronda) ══ */
+/* ═══════════════════════════════════════════════════════ TournamentMgr (con modal y sonido de fin de ronda) ══ */
 function TournamentMgr({teams, onStartMatch, currentMatchIdx, roundMatches, onEliminateLowest, roundName, roundComplete, history, onShowWait, onTieBreaker}) {
   const active = teams.filter(t=>!t.eliminated);
-  
-  // Detectar fase por nombre de ronda y cambiar música
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [lowestTeam, setLowestTeam] = useState(null);
   useEffect(() => {
     let phase = 'initial';
     if (roundName === 'Final') phase = 'final';
@@ -736,11 +751,46 @@ function TournamentMgr({teams, onStartMatch, currentMatchIdx, roundMatches, onEl
     else phase = 'initial';
     AudioEngine.setMusicPhase(phase);
   }, [roundName]);
-  
-  return ( <div style={{ display:"flex", flexDirection:"column", gap:12 }}> <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: "12px 16px", backdropFilter: "blur(4px)" }}> <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}> <div> <div style={{ fontSize:12, color:C.secondary, fontWeight:700, letterSpacing:1 }}>{roundName}</div> <div style={{ fontSize:11, color:C.outline, marginTop:2 }}>{active.length} activos</div> </div> <div style={{display:"flex", gap:6}}> {roundComplete && active.length>1 && <button onClick={onEliminateLowest} style={{ background: `${C.error}20`, color: C.error, border: `1px solid ${C.error}`, borderRadius:40, padding:"4px 12px", fontSize:10, fontWeight:700, cursor:"pointer" }}>✕ Eliminar menor</button>} {roundComplete && <button onClick={onShowWait} style={{ background: `${C.secondary}20`, color: C.secondary, border: `1px solid ${C.secondary}`, borderRadius:40, padding:"4px 12px", fontSize:10, fontWeight:700, cursor:"pointer" }}>⏸ Espera</button>} </div> </div> <button onClick={onTieBreaker} style={{ width:"100%", background: `${C.tertiary}20`, color: C.tertiary, border: `1px solid ${C.tertiary}`, borderRadius:40, padding:"6px", fontSize:10, fontWeight:700, cursor:"pointer" }}>⚡ Desempate – Palabra por Palabra</button> </div> <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: 12 }}> <div style={{ fontSize:10, color:C.outline, letterSpacing:1, marginBottom:8 }}>ENFRENTAMIENTOS</div> {roundMatches.length===0 && <div style={{ fontSize:11, color:C.outline, textAlign:"center", padding:12 }}>Sin enfrentamientos</div>} {roundMatches.map((match,i)=>{ const isCur=i===currentMatchIdx, isDone=i<currentMatchIdx; return( <div key={i} style={{ background: isCur ? `${C.primary}20` : isDone ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.04)", border: `1px solid ${isCur ? C.primary : C.outlineVariant}`, borderRadius: 12, padding:"6px 10px", marginBottom:6, display:"flex", alignItems:"center", gap:8 }}> <div style={{ width:20, height:20, borderRadius:"50%", background: isCur ? C.primary : C.outlineVariant, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:700, color: isCur ? C.onPrimary : C.onSurface }}>{i+1}</div> <div style={{ flex:1, fontSize:11 }}> {match.includes("__BYE__") ? <><span style={{color:C.secondary}}>{match[0]}</span><span style={{color:C.outline, marginLeft:5, fontSize:9}}>— PASE</span></> : match.join(" vs ")} </div> {isDone && <span style={{fontSize:9, color:C.primary}}>✓</span>} {isCur && !isDone && ( <button onClick={()=>onStartMatch(i)} style={{ background: match.includes("__BYE__") ? C.secondary : C.primary, color: match.includes("__BYE__") ? C.onSecondary : C.onPrimary, border:"none", borderRadius:40, padding:"2px 12px", fontSize:10, fontWeight:700, cursor:"pointer" }}>{match.includes("__BYE__") ? "⏭ Pase" : "▶ Iniciar"}</button> )} </div> ); })} </div> <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: 12 }}> <div style={{ fontSize:10, color:C.outline, letterSpacing:1, marginBottom:8 }}>POSICIONES</div> {[...teams].sort((a,b)=>(a.eliminated===b.eliminated ? b.score-a.score : a.eliminated ? 1 : -1)).map((t,i)=>{ const idx=teams.findIndex(x=>x.name===t.name); const col = TC[idx%TC.length]; return( <div key={t.name} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 6px", borderBottom: `1px solid ${C.outlineVariant}`, opacity: t.eliminated ? 0.5 : 1 }}> <div style={{ width:22, height:22, borderRadius:"50%", background: t.eliminated ? C.outlineVariant : `${col}30`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700, color: t.eliminated ? C.outline : col }}>{i+1}</div> <div style={{ flex:1, fontSize:12 }}>{t.name}</div> <div style={{ fontSize:13, fontWeight:700, fontFamily:"'JetBrains Mono', monospace", color: col }}>{t.score.toLocaleString()}</div> </div> ); })} </div> <RoundHistory history={history}/> </div> );
+  const handleEliminateClick = () => {
+    const act = teams.filter(t=>!t.eliminated);
+    if (act.length <= 2) return;
+    const low = act.reduce((a,b)=>a.score<b.score?a:b);
+    setLowestTeam(low);
+    setShowConfirmModal(true);
+  };
+  const confirmElimination = () => {
+    if (lowestTeam) {
+      onEliminateLowest(lowestTeam);
+      AudioEngine.roundEnd();
+    }
+    setShowConfirmModal(false);
+    setLowestTeam(null);
+  };
+  useEffect(() => {
+    if (roundComplete && active.length > 1) {
+      AudioEngine.roundEnd();
+    }
+  }, [roundComplete]);
+  return (
+    <>
+      {showConfirmModal && (
+        <div className="modal-overlay">
+          <div className="modal-card">
+            <h3 style={{ marginBottom: 16, color: C.error }}>⚠️ Confirmar eliminación</h3>
+            <p style={{ marginBottom: 24 }}>¿Eliminar a <strong>{lowestTeam?.name}</strong> con {lowestTeam?.score} pts?</p>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+              <button onClick={confirmElimination} style={{ background: C.error, color: C.onError, border: 'none', borderRadius: 40, padding: '8px 24px', cursor: 'pointer' }}>Sí, eliminar</button>
+              <button onClick={() => setShowConfirmModal(false)} style={{ background: 'transparent', border: `1px solid ${C.outlineVariant}`, color: C.outline, borderRadius: 40, padding: '8px 24px', cursor: 'pointer' }}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+      <div style={{ display:"flex", flexDirection:"column", gap:12 }}> <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: "12px 16px", backdropFilter: "blur(4px)" }}> <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}> <div> <div style={{ fontSize:12, color:C.secondary, fontWeight:700, letterSpacing:1 }}>{roundName}</div> <div style={{ fontSize:11, color:C.outline, marginTop:2 }}>{active.length} activos</div> </div> <div style={{display:"flex", gap:6}}> {roundComplete && active.length>1 && <button onClick={handleEliminateClick} style={{ background: `${C.error}20`, color: C.error, border: `1px solid ${C.error}`, borderRadius:40, padding:"4px 12px", fontSize:10, fontWeight:700, cursor:"pointer" }}>✕ Eliminar menor</button>} {roundComplete && <button onClick={onShowWait} style={{ background: `${C.secondary}20`, color: C.secondary, border: `1px solid ${C.secondary}`, borderRadius:40, padding:"4px 12px", fontSize:10, fontWeight:700, cursor:"pointer" }}>⏸ Espera</button>} </div> </div> <button onClick={onTieBreaker} style={{ width:"100%", background: `${C.tertiary}20`, color: C.tertiary, border: `1px solid ${C.tertiary}`, borderRadius:40, padding:"6px", fontSize:10, fontWeight:700, cursor:"pointer" }}>⚡ Desempate – Palabra por Palabra</button> </div> <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: 12 }}> <div style={{ fontSize:10, color:C.outline, letterSpacing:1, marginBottom:8 }}>ENFRENTAMIENTOS</div> {roundMatches.length===0 && <div style={{ fontSize:11, color:C.outline, textAlign:"center", padding:12 }}>Sin enfrentamientos</div>} {roundMatches.map((match,i)=>{ const isCur=i===currentMatchIdx, isDone=i<currentMatchIdx; return( <div key={i} style={{ background: isCur ? `${C.primary}20` : isDone ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.04)", border: `1px solid ${isCur ? C.primary : C.outlineVariant}`, borderRadius: 12, padding:"6px 10px", marginBottom:6, display:"flex", alignItems:"center", gap:8 }}> <div style={{ width:20, height:20, borderRadius:"50%", background: isCur ? C.primary : C.outlineVariant, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:700, color: isCur ? C.onPrimary : C.onSurface }}>{i+1}</div> <div style={{ flex:1, fontSize:11 }}> {match.includes("__BYE__") ? <><span style={{color:C.secondary}}>{match[0]}</span><span style={{color:C.outline, marginLeft:5, fontSize:9}}>— PASE</span></> : match.join(" vs ")} </div> {isDone && <span style={{fontSize:9, color:C.primary}}>✓</span>} {isCur && !isDone && ( <button onClick={()=>onStartMatch(i)} style={{ background: match.includes("__BYE__") ? C.secondary : C.primary, color: match.includes("__BYE__") ? C.onSecondary : C.onPrimary, border:"none", borderRadius:40, padding:"2px 12px", fontSize:10, fontWeight:700, cursor:"pointer" }}>{match.includes("__BYE__") ? "⏭ Pase" : "▶ Iniciar"}</button> )} </div> ); })} </div> <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: 12 }}> <div style={{ fontSize:10, color:C.outline, letterSpacing:1, marginBottom:8 }}>POSICIONES</div> {[...teams].sort((a,b)=>(a.eliminated===b.eliminated ? b.score-a.score : a.eliminated ? 1 : -1)).map((t,i)=>{ const idx=teams.findIndex(x=>x.name===t.name); const col = TC[idx%TC.length]; return( <div key={t.name} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 6px", borderBottom: `1px solid ${C.outlineVariant}`, opacity: t.eliminated ? 0.5 : 1 }}> <div style={{ width:22, height:22, borderRadius:"50%", background: t.eliminated ? C.outlineVariant : `${col}30`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700, color: t.eliminated ? C.outline : col }}>{i+1}</div> <div style={{ flex:1, fontSize:12 }}>{t.name}</div> <div style={{ fontSize:13, fontWeight:700, fontFamily:"'JetBrains Mono', monospace", color: col }}>{t.score.toLocaleString()}</div> </div> ); })} </div> <RoundHistory history={history}/> </div>
+    </>
+  );
 }
 
-/* ═══════════════════════════════════════════════════════ SOUND MANAGER (actualizado con fases musicales) ══ */
+/* ═══════════════════════════════════════════════════════ SOUND MANAGER (con roundEnd) ══ */
 function SoundManager() {
   const [customStatus, setCustomStatus] = useState({});
   const refreshStatus = async () => {
@@ -753,6 +803,7 @@ function SoundManager() {
       fanfare: !!status.fanfare,
       joker: !!status.joker,
       countdown: !!status.countdown,
+      roundEnd: !!status.roundEnd,
       music_start: !!status.start,
       music_initial: !!status.initial,
       music_semifinal: !!status.semifinal,
@@ -761,7 +812,6 @@ function SoundManager() {
     });
   };
   useEffect(() => { refreshStatus(); }, []);
-
   const handleFileUpload = async (type, file) => {
     if (!file) return;
     if (type.startsWith('music_')) {
@@ -772,7 +822,6 @@ function SoundManager() {
     }
     refreshStatus();
   };
-
   const resetSound = async (type) => {
     if (type.startsWith('music_')) {
       const phase = type.replace('music_', '');
@@ -782,11 +831,7 @@ function SoundManager() {
     }
     refreshStatus();
   };
-
-  const playTest = (type) => {
-    AudioEngine.playTestSound(type);
-  };
-
+  const playTest = (type) => { AudioEngine.playTestSound(type); };
   const soundItems = [
     { id: 'correct', label: '✅ Acierto', icon: '✓' },
     { id: 'wrong', label: '❌ Error', icon: '✗' },
@@ -795,13 +840,13 @@ function SoundManager() {
     { id: 'fanfare', label: '🎉 Fanfarria (desempate)', icon: '🎺' },
     { id: 'joker', label: '🃏 Comodín', icon: '✨' },
     { id: 'countdown', label: '🔔 Inicio de cuenta regresiva', icon: '⏲️' },
+    { id: 'roundEnd', label: '🔚 Fin de ronda', icon: '🏁' },
     { id: 'music_start', label: '🎵 Música de inicio', icon: '🏁' },
     { id: 'music_initial', label: '🎵 Música ronda inicial / cuartos', icon: '🔊' },
     { id: 'music_semifinal', label: '🎵 Música semifinal', icon: '⚡' },
     { id: 'music_final', label: '🎵 Música final', icon: '🏆' },
     { id: 'music_tiebreaker', label: '🎵 Música desempate', icon: '⚔️' }
   ];
-
   return (
     <div style={{ padding: '20px', maxWidth: '800px', margin: '0 auto' }}>
       <h2 style={{ marginBottom: '20px', color: C.primary }}>🎵 Configuración de sonidos y música por fases</h2>
@@ -831,7 +876,88 @@ function SoundManager() {
   );
 }
 
-/* ═══════════════════════════════════════════════════════ GAME VIEW (con botón de música siempre visible) ══ */
+/* ═══════════════════════════════════════════════════════ QManager (con importación/exportación Excel) ══ */
+function QManager({questions, setQuestions, onExport, resetToDefault}) {
+  const blank = {id:Date.now(),stage:1,text:"",options:["","","",""],answer:"A",level:1};
+  const [form, setForm] = useState(blank);
+  const [editId, setEditId] = useState(null);
+  const sc = {1:C.secondary, 2:C.tertiary, 3:C.primary};
+  const save = () => { if (!form.text.trim()) return; const q = {...form, id: editId||Date.now(), options: form.stage===1 ? form.options : null, answer:  form.stage===1 ? form.answer  : form.answer }; setQuestions(qs=>editId?qs.map(x=>x.id===editId?q:x):[...qs,q]); setForm({...blank, id:Date.now()}); setEditId(null); };
+  const edit = q => { setForm({...q, options: q.options||["","","",""]}); setEditId(q.id); };
+  const del = id => setQuestions(qs=>qs.filter(q=>q.id!==id));
+  const imp = e => { const file = e.target.files[0]; if(!file) return; const r = new FileReader(); r.onload = ev => { try { setQuestions(JSON.parse(ev.target.result)); } catch {} }; r.readAsText(file); e.target.value=""; };
+  const importFromExcel = (file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet);
+      const newQuestions = [];
+      rows.forEach((row, idx) => {
+        let opts = null;
+        if (row.opciones && typeof row.opciones === 'string') {
+          opts = row.opciones.split('|').map(s => s.trim());
+          if (opts.length !== 4) opts = null;
+        }
+        if (row.etapa === 1 && !opts) {
+          console.warn(`Fila ${idx+1}: etapa 1 sin 4 opciones, se omite`);
+          return;
+        }
+        newQuestions.push({
+          id: Date.now() + idx,
+          stage: parseInt(row.etapa) || 1,
+          level: parseInt(row.nivel) || 1,
+          text: row.texto || '',
+          options: opts,
+          answer: row.respuesta || ''
+        });
+      });
+      if (newQuestions.length && confirm(`Se importarán ${newQuestions.length} preguntas. ¿Reemplazar el banco actual?`)) {
+        setQuestions(newQuestions);
+        alert(`Importadas ${newQuestions.length} preguntas.`);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+  const exportToExcel = () => {
+    const data = questions.map(q => ({
+      etapa: q.stage,
+      nivel: q.level,
+      texto: q.text,
+      opciones: q.options ? q.options.join('|') : '',
+      respuesta: q.answer
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Preguntas');
+    XLSX.writeFile(wb, `preguntas_${new Date().toISOString().slice(0,10)}.xlsx`);
+  };
+  return ( <div style={{ display:"grid", gridTemplateColumns:"340px 1fr", gap: 16, height:"calc(100vh - 80px)", padding:"0 24px" }}> <div style={{ background: C.surfaceContainer, borderRadius: 24, padding: 16, overflowY:"auto", backdropFilter:"blur(4px)" }}> <div style={{ fontSize:12, color:C.secondary, fontWeight:700, letterSpacing:1, marginBottom:12 }}>{editId?"EDITAR PREGUNTA":"NUEVA PREGUNTA"}</div> <div style={{ marginBottom:12 }}> <div style={{ fontSize:9, color:C.outline, marginBottom:4 }}>ETAPA</div> <div style={{ display:"flex", gap:6 }}> {[1,2,3].map(s=>( <button key={s} onClick={()=>setForm(f=>({...f,stage:s}))} style={{ flex:1, background:form.stage===s ? `${sc[s]}20` : "transparent", border:`1px solid ${form.stage===s ? sc[s] : C.outlineVariant}`, color: form.stage===s ? sc[s] : C.outline, borderRadius:40, padding:"5px", fontSize:10, cursor:"pointer" }}>E{s}</button> ))} </div> </div> <div style={{ marginBottom:12 }}> <div style={{ fontSize:9, color:C.outline, marginBottom:4 }}>NIVEL</div> <div style={{ display:"flex", gap:6 }}> {[1,2].map(l=>( <button key={l} onClick={()=>setForm(f=>({...f,level:l}))} style={{ flex:1, background:form.level===l ? `${C.primary}20` : "transparent", border:`1px solid ${form.level===l ? C.primary : C.outlineVariant}`, color: form.level===l ? C.primary : C.outline, borderRadius:40, padding:"5px", fontSize:10, cursor:"pointer" }}>{l===1?"Club Bíblico":"Líderes"}</button> ))} </div> </div> <div style={{ marginBottom:12 }}> <div style={{ fontSize:9, color:C.outline, marginBottom:4 }}>PREGUNTA</div> <textarea value={form.text} onChange={e=>setForm(f=>({...f,text:e.target.value}))} rows={3} style={{ width:"100%", background:C.surfaceContainerHigh, border:`1px solid ${C.outlineVariant}`, borderRadius:12, color:C.onSurface, fontSize:11, padding:"8px 10px", resize:"vertical" }}/> </div> {form.stage===1 && ( <div style={{ marginBottom:12 }}> <div style={{ fontSize:9, color:C.outline, marginBottom:4 }}>OPCIONES</div> {["A","B","C","D"].map((l,i)=>( <div key={l} style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}> <span style={{ width:24, height:24, borderRadius:"50%", background:"rgba(255,255,255,0.1)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700 }}>{l}</span> <input value={form.options[i]||""} onChange={e=>{const o=[...form.options];o[i]=e.target.value;setForm(f=>({...f,options:o}));}} style={{ flex:1, background:C.surfaceContainerHigh, border:`1px solid ${form.answer===l ? C.primary : C.outlineVariant}`, borderRadius:8, color:C.onSurface, fontSize:10, padding:"5px 8px" }}/> <button onClick={()=>setForm(f=>({...f,answer:l}))} style={{ width:24, height:24, borderRadius:"50%", background:form.answer===l ? C.primary : "transparent", border:`1px solid ${form.answer===l ? C.primary : C.outlineVariant}`, color: form.answer===l ? C.onPrimary : C.outline, fontSize:9, cursor:"pointer" }}>✓</button> </div> ))} </div> )} {form.stage!==1 && ( <div style={{ marginBottom:12 }}> <div style={{ fontSize:9, color:C.outline, marginBottom:4 }}>RESPUESTA CORRECTA</div> <textarea value={form.answer} onChange={e=>setForm(f=>({...f,answer:e.target.value}))} rows={2} style={{ width:"100%", background:C.surfaceContainerHigh, border:`1px solid ${C.outlineVariant}`, borderRadius:12, color:C.onSurface, fontSize:11, padding:"8px 10px" }}/> </div> )} <div style={{ display:"flex", gap:8, marginTop:8 }}> <button onClick={save} style={{ flex:1, background:C.primary, color:C.onPrimary, border:"none", borderRadius:40, padding:"8px", fontSize:11, fontWeight:700, cursor:"pointer" }}>{editId?"💾 Actualizar":"+ Agregar"}</button> {editId && <button onClick={()=>{setForm({...blank,id:Date.now()});setEditId(null);}} style={{ background:"transparent", color:C.outline, border:`1px solid ${C.outlineVariant}`, borderRadius:40, padding:"8px", fontSize:11, cursor:"pointer" }}>✕</button>} </div> <div style={{ display:"flex", gap:8, marginTop:12 }}> <button onClick={onExport} style={{ flex:1, background: `${C.secondary}20`, color: C.secondary, border:`1px solid ${C.secondary}`, borderRadius:40, padding:"6px", fontSize:10, fontWeight:600, cursor:"pointer" }}>⬇ Exportar JSON</button> <label style={{ flex:1, background: `${C.tertiary}20`, color: C.tertiary, border:`1px solid ${C.tertiary}`, borderRadius:40, padding:"6px", fontSize:10, fontWeight:600, cursor:"pointer", textAlign:"center" }}> ⬆ Importar JSON <input type="file" accept=".json" onChange={imp} style={{display:"none"}}/> </label> </div> <div style={{ display:"flex", gap:8, marginTop:12 }}> <button onClick={resetToDefault} style={{ flex:1, background: `${C.warn}20`, color: C.warn, border:`1px solid ${C.warn}`, borderRadius:40, padding:"6px", fontSize:10, fontWeight:600, cursor:"pointer" }}>⟳ Restablecer predeterminadas</button> </div> <div style={{ display:"flex", gap:8, marginTop:12 }}> <label style={{ flex:1, background: `${C.primary}20`, border: `1px solid ${C.primary}`, color: C.primary, borderRadius: 40, padding: "6px", fontSize: 10, fontWeight: 600, cursor: "pointer", textAlign: "center" }}> 📊 Importar Excel <input type="file" accept=".xlsx, .xls" style={{display:'none'}} onChange={(e) => e.target.files[0] && importFromExcel(e.target.files[0])} /> </label> <button onClick={exportToExcel} style={{ flex:1, background: `${C.secondary}20`, border: `1px solid ${C.secondary}`, color: C.secondary, borderRadius: 40, padding: "6px", fontSize: 10, fontWeight: 600, cursor: "pointer" }}>📊 Exportar a Excel</button> </div> <div style={{ fontSize:9, color:C.outline, textAlign:"center", marginTop:12 }}>{questions.length} preguntas</div> </div> <div style={{ background: C.surfaceContainer, borderRadius: 24, padding: 16, overflowY:"auto" }}> <div style={{ fontSize:12, color:C.secondary, fontWeight:700, marginBottom:12 }}>BANCO DE PREGUNTAS</div> {[1,2,3].map(stage=>{ const qs=questions.filter(q=>q.stage===stage); if(!qs.length) return null; return( <div key={stage} style={{ marginBottom:16 }}> <div style={{ fontSize:10, color:sc[stage], letterSpacing:1, marginBottom:6 }}>{SC[stage].label.toUpperCase()} ({qs.length})</div> {qs.map(q=> ( <div key={q.id} style={{ background: C.surfaceContainerHigh, borderRadius: 12, padding:"8px 10px", marginBottom:6, borderLeft: `4px solid ${sc[stage]}` }}> <div style={{ fontSize:11 }}>{q.text}</div> <div style={{ fontSize:9, color:C.outline, marginTop:2 }}>Nv{q.level} · {q.answer?.substring(0,35)}</div> <div style={{ display:"flex", gap:6, marginTop:6 }}> <button onClick={()=>edit(q)} style={{ background: `${C.secondary}20`, border:"none", borderRadius:40, padding:"2px 12px", fontSize:9, cursor:"pointer" }}>Editar</button> <button onClick={()=>del(q.id)} style={{ background: `${C.error}20`, border:"none", borderRadius:40, padding:"2px 12px", fontSize:9, cursor:"pointer" }}>✕</button> </div> </div> ))} </div> ); })} </div> </div> );
+}
+
+/* ═══════════════════════════════════════════════════ GAME VIEW (con envío de showWait, showTie y estado de desempate al proyector, y botones de limpiar/mostrar) ══ */
+function exportResultsToExcel(teams, historyLog, roundsHistory) {
+  const summary = teams.map(t => ({ Equipo: t.name, 'Puntaje final': t.score, Eliminado: t.eliminated ? 'Sí' : 'No', Racha: t.streak || 0 }));
+  const wsSummary = XLSX.utils.json_to_sheet(summary);
+  const details = historyLog.map(l => ({ Tiempo: l.time, Mensaje: l.msg }));
+  const wsDetails = XLSX.utils.json_to_sheet(details);
+  const ranking = [...teams].sort((a,b)=>b.score-a.score).map((t,i) => ({ Posición: i+1, Equipo: t.name, Puntaje: t.score, Estado: t.eliminated ? 'Eliminado' : 'Activo' }));
+  const wsRanking = XLSX.utils.json_to_sheet(ranking);
+  const roundsData = roundsHistory.map(r => ({
+    Ronda: r.roundName,
+    Eliminado: r.eliminated || '',
+    Enfrentamientos: r.matches.map(m => m.scores.map(s => `${s.name}: ${s.bye ? 'BYE' : s.score}`).join(' | ')).join(' ; ')
+  }));
+  const wsRounds = XLSX.utils.json_to_sheet(roundsData);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumen');
+  XLSX.utils.book_append_sheet(wb, wsDetails, 'Detalle');
+  XLSX.utils.book_append_sheet(wb, wsRanking, 'Ranking');
+  XLSX.utils.book_append_sheet(wb, wsRounds, 'Rondas');
+  XLSX.writeFile(wb, `resultados_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
 function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, initialState, gameStateKey}) {
   const [teams, setTeamsState] = useState(() => initialState?.teams || initialTeams);
   const [usedIds, setUsedIds] = useState(() => initialState?.usedIds || []);
@@ -861,6 +987,9 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
   const [projectorWindow, setProjectorWindow] = useState(null);
   const [projectorActive, setProjectorActive] = useState(false);
   const [musicOn, setMusicOn] = useState(false);
+  const [projectorClear, setProjectorClear] = useState(false); // estado para limpiar/mostrar proyector
+  // Estado del desempate para enviar al proyector
+  const [tieState, setTieState] = useState({ phase: 'setup', word: '', running: false, tkey: 0, winner: null, teams: [], teamIndexes: [] });
   const teamCardRefs = useRef({});
 
   const active = teams.filter(t=>!t.eliminated);
@@ -869,10 +998,10 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
   const mTeams = mIdxs.map(i=>teams[i]).filter(Boolean);
   const getTeamLetter = (globalIdx) => String.fromCharCode(65 + globalIdx);
 
-  const persistGameState = useCallback(() => {
+  const persistGameState = useCallback(async () => {
     const gameState = { teams, usedIds, roundMatches, matchIdx, roundName, roundDone, history, curRoundData, log, fStage, fLevel, curQ, showAns, resolved, running, tkey, extraTime, sel, hiddenOptions, responseMode, activeResponderTeamIdx, matchActive };
-    localStorage.setItem(gameStateKey, JSON.stringify(gameState));
-  }, [teams, usedIds, roundMatches, matchIdx, roundName, roundDone, history, curRoundData, log, fStage, fLevel, curQ, showAns, resolved, running, tkey, extraTime, sel, hiddenOptions, responseMode, activeResponderTeamIdx, matchActive, gameStateKey]);
+    await saveGameStateToDB(gameState);
+  }, [teams, usedIds, roundMatches, matchIdx, roundName, roundDone, history, curRoundData, log, fStage, fLevel, curQ, showAns, resolved, running, tkey, extraTime, sel, hiddenOptions, responseMode, activeResponderTeamIdx, matchActive]);
   useEffect(() => { const interval = setInterval(() => { if (matchActive) persistGameState(); }, 30000); return () => clearInterval(interval); }, [persistGameState, matchActive]);
   useEffect(() => { if (matchActive) persistGameState(); }, [teams, usedIds, roundMatches, matchIdx, roundName, roundDone, history, curRoundData, matchActive, persistGameState, curQ, showAns, resolved, running, tkey, extraTime, sel, hiddenOptions, responseMode, activeResponderTeamIdx]);
 
@@ -885,11 +1014,61 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
     for (let r = 0; r < n - 1; r++) { for (let i = 0; i < n / 2; i++) { const t1 = rr[i], t2 = rr[n - 1 - i]; if (t1 === "__BYE__") m.push([t2, "__BYE__"]); else if (t2 === "__BYE__") m.push([t1, "__BYE__"]); else m.push([t1, t2]); } rr = [rr[0], rr[n-1], ...rr.slice(1, n-1)]; }
     setRoundMatches(m); setMatchIdx(0); setMatchActive(false); setRoundDone(false); setCurRoundData([]); addLog(`${m.filter(x => !x.includes("__BYE__")).length} enfrentamientos generados — ${roundName}${hasBye ? " (1 pase libre)" : ""}`);
   };
-  const startMatch = idx => { const match = roundMatches[idx]; if (match.includes("__BYE__")) { const byeTeam = match[0]; const byeIdx = teams.findIndex(t=>t.name===byeTeam); setCurRoundData(d=>[...d, {scores:[{name:byeTeam, score:teams[byeIdx]?.score||0, teamIdx:byeIdx, bye:true}]}]); addLog(`⏭ Pase libre: ${byeTeam}`); const next = idx + 1; if (next >= roundMatches.length) setRoundDone(true); else setMatchIdx(next); return; } setTeamsState(ts=>ts.map(t=>match.includes(t.name)?{...t, jokers:[false,false,false], pasoUsed:false}:t)); setMatchActive(true); setCurQ(null); setShowAns(false); setSel({}); setResolved(false); setRunning(false); setTkey(k=>k+1); setExtraTime(0); setHiddenOptions(null); setActiveResponderTeamIdx(null); addLog(`Enfrentamiento ${idx+1}: ${match.join(" vs ")}`); };
+  const startMatch = idx => { const match = roundMatches[idx]; if (match.includes("__BYE__")) { const byeTeam = match[0]; const byeIdx = teams.findIndex(t=>t.name===byeTeam); setCurRoundData(d=>[...d, {scores:[{name:byeTeam, score:teams[byeIdx]?.score||0, teamIdx:byeIdx, bye:true}]}]); addLog(`⏭ Pase libre: ${byeTeam}`); const next = idx + 1; if (next >= roundMatches.length) setRoundDone(true); else setMatchIdx(next); return; } setTeamsState(ts=>ts.map(t=>match.includes(t.name)?{...t, jokers:[false,false,false], pasoUsed:false, streak:0}:t)); setMatchActive(true); setCurQ(null); setShowAns(false); setSel({}); setResolved(false); setRunning(false); setTkey(k=>k+1); setExtraTime(0); setHiddenOptions(null); setActiveResponderTeamIdx(null); setShowWait(false); setShowTie(false); setProjectorClear(false); // al iniciar enfrentamiento, asegurar que proyector no esté en modo limpio
+    addLog(`Enfrentamiento ${idx+1}: ${match.join(" vs ")}`); 
+  };
   const endMatch = () => { const matchIdxs = roundMatches[matchIdx].filter(n=>n!=="__BYE__").map(n=>teams.findIndex(t=>t.name===n)); const snapshot = matchIdxs.map(i=>({name:teams[i]?.name, score:teams[i]?.score, teamIdx:i})); setCurRoundData(d=>[...d, {scores: snapshot}]); const next = matchIdx + 1; setMatchActive(false); if (next >= roundMatches.length) setRoundDone(true); else setMatchIdx(next); };
-  const elimLowest = () => { const act = teams.filter(t=>!t.eliminated); if (act.length <= 2) return; const low = act.reduce((a,b)=>a.score<b.score?a:b); setHistory(h=>[...h, { roundName, matches: curRoundData, eliminated: low.name }]); setTeamsState(ts=>ts.map(t=>t.name===low.name?{...t,eliminated:true}:t)); addLog(`❌ ${low.name} eliminado con ${low.score.toLocaleString()} pts`); AudioEngine.wrong(); const rem = act.length - 1; const newRound = getRoundName(rem); setRoundName(newRound); setRoundDone(false); setRoundMatches([]); setMatchIdx(0); setCurRoundData([]); setShowWait(true); };
+  const elimLowest = (lowTeam) => { 
+    setHistory(h=>[...h, { roundName, matches: curRoundData, eliminated: lowTeam.name }]); 
+    setTeamsState(ts=>ts.map(t=>t.name===lowTeam.name?{...t,eliminated:true}:t)); 
+    addLog(`❌ ${lowTeam.name} eliminado con ${lowTeam.score.toLocaleString()} pts`); 
+    AudioEngine.wrong(); 
+    const rem = active.length - 1; 
+    const newRound = getRoundName(rem); 
+    setRoundName(newRound); 
+    setRoundDone(false); 
+    setRoundMatches([]); 
+    setMatchIdx(0); 
+    setCurRoundData([]); 
+    setShowWait(true); 
+  };
   const selectQ = q => { setCurQ(q); setShowAns(false); setResolved(false); setSel({}); setRunning(false); setTkey(k=>k+1); setExtraTime(0); setHiddenOptions(null); setActiveResponderTeamIdx(null); if (q.stage !== 1) setResponseMode("all"); };
-  const useComodin = (teamIdx, comodinIdx) => { const team = mTeams[teamIdx]; if (!team || team.jokers[comodinIdx]) return; const ri = mIdxs[teamIdx]; setTeamsState(prev => prev.map((t,i)=> i===ri ? {...t, jokers: t.jokers.map((j,idx)=> idx===comodinIdx ? true : j)} : t)); addLog(`${team.name} usó comodín: ${comodinIdx===0 ? "50/50" : comodinIdx===1 ? "Capitán" : "Cambio"}`); AudioEngine.joker(); if (comodinIdx === 0 && curQ?.stage===1) { const correctLetter = curQ.answer; const allLetters = ["A","B","C","D"]; const incorrectIndices = allLetters.filter(l => l !== correctLetter).map(l => allLetters.indexOf(l)); const shuffled = [...incorrectIndices]; for (let i = shuffled.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]; } setHiddenOptions(shuffled.slice(0,2)); addLog(`50/50 activado: se ocultan 2 opciones`); } else if (comodinIdx === 1 && running) { setExtraTime(prev => Math.min(prev + 5, SC[curQ?.stage]?.time)); addLog(`Ayuda Capitán: +5 segundos`); } else if (comodinIdx === 2 && curQ && curQ.stage !== 3) { const posibles = questions.filter(q => q.stage === curQ.stage && q.level === curQ.level && q.id !== curQ.id && !usedIds.includes(q.id)); if (posibles.length) { const newQ = posibles[Math.floor(Math.random() * posibles.length)]; setCurQ(newQ); setShowAns(false); setResolved(false); setSel({}); setRunning(false); setTkey(k=>k+1); setExtraTime(0); setHiddenOptions(null); addLog(`Pregunta cambiada por: ${newQ.text.substring(0,50)}`); } else addLog(`No hay otra pregunta disponible`); } };
+  const useComodin = (teamIdx, comodinIdx) => { 
+    const team = mTeams[teamIdx]; if (!team || team.jokers[comodinIdx]) return; 
+    const ri = mIdxs[teamIdx]; 
+    setTeamsState(prev => prev.map((t,i)=> i===ri ? {...t, jokers: t.jokers.map((j,idx)=> idx===comodinIdx ? true : j)} : t)); 
+    addLog(`${team.name} usó comodín: ${comodinIdx===0 ? "50/50" : comodinIdx===1 ? "Capitán" : "Cambio"}`); 
+    AudioEngine.joker(); 
+    let jokerMsg = '';
+    if (comodinIdx === 0 && curQ?.stage===1) { 
+      const correctLetter = curQ.answer; 
+      const allLetters = ["A","B","C","D"]; 
+      const incorrectIndices = allLetters.filter(l => l !== correctLetter).map(l => allLetters.indexOf(l)); 
+      const shuffled = [...incorrectIndices]; 
+      for (let i = shuffled.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]; } 
+      setHiddenOptions(shuffled.slice(0,2)); 
+      addLog(`50/50 activado: se ocultan 2 opciones`);
+      jokerMsg = `🎭 50/50 activado - Se ocultan 2 opciones`;
+    } else if (comodinIdx === 1 && running) { 
+      const newExtra = Math.min(extraTime + 5, SC[curQ?.stage]?.time); 
+      setExtraTime(newExtra); 
+      addLog(`Ayuda Capitán: +5 segundos (ahora ${newExtra}s extra)`);
+      jokerMsg = `⏱️ Ayuda Capitán activada - +5 segundos`;
+    } else if (comodinIdx === 2 && curQ && curQ.stage !== 3) { 
+      const posibles = questions.filter(q => q.stage === curQ.stage && q.level === curQ.level && q.id !== curQ.id && !usedIds.includes(q.id)); 
+      if (posibles.length) { 
+        const newQ = posibles[Math.floor(Math.random() * posibles.length)]; 
+        setCurQ(newQ); 
+        setShowAns(false); setResolved(false); setSel({}); setRunning(false); setTkey(k=>k+1); setExtraTime(0); setHiddenOptions(null); 
+        addLog(`Pregunta cambiada por: ${newQ.text.substring(0,50)}`);
+        jokerMsg = `🔄 Comodín Cambio - Nueva pregunta: ${newQ.text.substring(0,40)}...`;
+      } else addLog(`No hay otra pregunta disponible`);
+    }
+    if (projectorWindow && !projectorWindow.closed && jokerMsg) {
+      projectorWindow.postMessage({ type: 'PROJECTOR_JOKER', payload: jokerMsg }, '*');
+      setTimeout(() => { projectorWindow.postMessage({ type: 'PROJECTOR_JOKER_CLEAR' }, '*'); }, 3000);
+    }
+  };
   const handleSelect = (action, ti) => { if (!curQ || resolved) return; if (["A","B","C","D",null].includes(action)) { if (ti !== undefined) setSel(s=>({...s,[ti]:action})); else setSel(s=>{const n={...s};mTeams.forEach((_,idx)=>{if(!n[idx])n[idx]=action;});return n;}); } };
   const handleReveal = (mode, tiParam) => {
     if (!curQ) return;
@@ -898,10 +1077,10 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
       if (responseMode === "all") {
         mTeams.forEach((t,ti)=>{ const ri=mIdxs[ti]; if(ri<0)return; const s=sel[ti];
           if (mode === "timeout") {
-            if (s) { const ok=s===curQ.answer; const pts=ok?cfg.correct:cfg.incorrect; setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+pts}:tt)); addLog(`${t.name}: ${pts>0?"+":""}${pts} pts (${ok?"✓":"✗ tiempo"}) → ${s}`); triggerAnim(ti, pts); if(ok) AudioEngine.correct(); else AudioEngine.wrong(); }
-            else { setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+cfg.incorrect}:tt)); addLog(`${t.name}: ${cfg.incorrect} pts (sin resp — tiempo agotado)`); triggerAnim(ti, cfg.incorrect); AudioEngine.wrong(); }
+            if (s) { const ok=s===curQ.answer; const pts=ok?cfg.correct:cfg.incorrect; setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+pts, streak: ok ? (tt.streak||0)+1 : 0}:tt)); addLog(`${t.name}: ${pts>0?"+":""}${pts} pts (${ok?"✓":"✗ tiempo"}) → ${s}`); triggerAnim(ti, pts); if(ok) AudioEngine.correct(); else AudioEngine.wrong(); }
+            else { setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+cfg.incorrect, streak:0}:tt)); addLog(`${t.name}: ${cfg.incorrect} pts (sin resp — tiempo agotado)`); triggerAnim(ti, cfg.incorrect); AudioEngine.wrong(); }
           } else {
-            if (s) { const ok=s===curQ.answer; const pts=ok?cfg.correct:cfg.incorrect; setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+pts}:tt)); addLog(`${t.name}: ${pts>0?"+":""}${pts} pts (${ok?"✓":"✗"}) → ${s}`); triggerAnim(ti, pts); if(ok) AudioEngine.correct(); else AudioEngine.wrong(); }
+            if (s) { const ok=s===curQ.answer; const pts=ok?cfg.correct:cfg.incorrect; setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+pts, streak: ok ? (tt.streak||0)+1 : 0}:tt)); addLog(`${t.name}: ${pts>0?"+":""}${pts} pts (${ok?"✓":"✗"}) → ${s}`); triggerAnim(ti, pts); if(ok) AudioEngine.correct(); else AudioEngine.wrong(); }
             else { addLog(`${t.name}: sin selección`); }
           }
         });
@@ -912,28 +1091,59 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
         const ti = activeResponderTeamIdx;
         const t = mTeams[ti]; const ri=mIdxs[ti]; const s=sel[ti];
         if (mode === "timeout") {
-          if (s) { const ok=s===curQ.answer; const pts=ok?cfg.correct:cfg.incorrect; setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+pts}:tt)); addLog(`${t.name}: ${pts>0?"+":""}${pts} pts (${ok?"✓":"✗ tiempo"}) → ${s}`); triggerAnim(ti, pts); if(ok) AudioEngine.correct(); else AudioEngine.wrong(); }
-          else { setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+cfg.incorrect}:tt)); addLog(`${t.name}: ${cfg.incorrect} pts (sin resp — tiempo agotado)`); triggerAnim(ti, cfg.incorrect); AudioEngine.wrong(); }
+          if (s) { const ok=s===curQ.answer; const pts=ok?cfg.correct:cfg.incorrect; setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+pts, streak: ok ? (tt.streak||0)+1 : 0}:tt)); addLog(`${t.name}: ${pts>0?"+":""}${pts} pts (${ok?"✓":"✗ tiempo"}) → ${s}`); triggerAnim(ti, pts); if(ok) AudioEngine.correct(); else AudioEngine.wrong(); }
+          else { setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+cfg.incorrect, streak:0}:tt)); addLog(`${t.name}: ${cfg.incorrect} pts (sin resp — tiempo agotado)`); triggerAnim(ti, cfg.incorrect); AudioEngine.wrong(); }
         } else {
-          if (s) { const ok=s===curQ.answer; const pts=ok?cfg.correct:cfg.incorrect; setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+pts}:tt)); addLog(`${t.name}: ${pts>0?"+":""}${pts} pts (${ok?"✓":"✗"}) → ${s}`); triggerAnim(ti, pts); if(ok) AudioEngine.correct(); else AudioEngine.wrong(); }
+          if (s) { const ok=s===curQ.answer; const pts=ok?cfg.correct:cfg.incorrect; setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+pts, streak: ok ? (tt.streak||0)+1 : 0}:tt)); addLog(`${t.name}: ${pts>0?"+":""}${pts} pts (${ok?"✓":"✗"}) → ${s}`); triggerAnim(ti, pts); if(ok) AudioEngine.correct(); else AudioEngine.wrong(); }
           else { addLog(`${t.name}: sin selección`); }
         }
         setResolved(true); setRunning(false);
       }
     } else if (curQ.stage !== 1 && mode === "reveal") { setShowAns(true); setRunning(false); }
-    else if (mode === "correct_manual") { const ti = tiParam; const ri=mIdxs[ti]; setTeamsState(ts=>ts.map((t,i)=>i===ri?{...t,score:t.score+cfg.correct}:t)); addLog(`${mTeams[ti]?.name}: +${cfg.correct} pts ✓`); triggerAnim(ti, cfg.correct); AudioEngine.correct(); }
-    else if (mode === "wrong_manual") { const ti = tiParam; const ri=mIdxs[ti]; setTeamsState(ts=>ts.map((t,i)=>i===ri?{...t,score:t.score+cfg.incorrect}:t)); addLog(`${mTeams[ti]?.name}: ${cfg.incorrect} pts ✗`); triggerAnim(ti, cfg.incorrect); AudioEngine.wrong(); }
+    else if (mode === "correct_manual") { const ti = tiParam; const ri=mIdxs[ti]; setTeamsState(ts=>ts.map((t,i)=>i===ri?{...t,score:t.score+cfg.correct, streak: (t.streak||0)+1}:t)); addLog(`${mTeams[ti]?.name}: +${cfg.correct} pts ✓`); triggerAnim(ti, cfg.correct); AudioEngine.correct(); }
+    else if (mode === "wrong_manual") { const ti = tiParam; const ri=mIdxs[ti]; setTeamsState(ts=>ts.map((t,i)=>i===ri?{...t,score:t.score+cfg.incorrect, streak:0}:t)); addLog(`${mTeams[ti]?.name}: ${cfg.incorrect} pts ✗`); triggerAnim(ti, cfg.incorrect); AudioEngine.wrong(); }
   };
   const timerEnd = () => { setRunning(false); AudioEngine.timeout(); if (curQ?.stage===1 && !resolved) handleReveal("timeout"); };
   const startTimer = () => setRunning(true); const pauseTimer = () => setRunning(false); const resetTimer = () => { setRunning(false); setTkey(k=>k+1); setExtraTime(0); };
   const toggleResponseMode = () => { if (curQ?.stage !== 1) return; const newMode = responseMode === "all" ? "single" : "all"; setResponseMode(newMode); setSel({}); setResolved(false); setShowAns(false); setActiveResponderTeamIdx(null); addLog(`Modo de respuesta cambiado a ${newMode === "all" ? "Todos responden" : "Un equipo responde"}`); };
   const setResponder = (idx) => { if (responseMode !== "single") return; setActiveResponderTeamIdx(idx); setSel({}); addLog(`Turno para responder: ${mTeams[idx]?.name}`); };
-  const sendUpdateToProjector = useCallback(() => { if (!projectorWindow || projectorWindow.closed) { setProjectorActive(false); return; } projectorWindow.postMessage({ type: 'PROJECTOR_UPDATE', payload: { curQ, showAnswer: showAns, resolved, sel, remaining: tkey, running, teams: teams.map(t=>({name:t.name, score:t.score, eliminated:t.eliminated})), activeMatchTeams: mTeams, matchTeamIndices: mIdxs, responseMode, activeResponderTeamIdx } }, '*'); }, [curQ, showAns, resolved, sel, running, teams, mTeams, mIdxs, projectorWindow, tkey, responseMode, activeResponderTeamIdx]);
+  
+  // Función para limpiar el proyector (mostrar pantalla de transición)
+  const clearProjector = () => {
+    setProjectorClear(true);
+    if (projectorWindow && !projectorWindow.closed) {
+      projectorWindow.postMessage({ type: 'PROJECTOR_UPDATE', payload: { projectorClear: true } }, '*');
+    }
+    addLog("🌙 Proyector ocultado (pantalla de transición)");
+  };
+  // Función para mostrar la pregunta activa en el proyector
+  const showProjector = () => {
+    setProjectorClear(false);
+    if (projectorWindow && !projectorWindow.closed) {
+      projectorWindow.postMessage({ type: 'PROJECTOR_UPDATE', payload: { projectorClear: false } }, '*');
+      // Además, enviar el estado actual completo para asegurar sincronización
+      sendUpdateToProjector();
+    }
+    addLog("☀️ Proyector restaurado");
+  };
+  
+  const sendUpdateToProjector = useCallback(() => { 
+    if (!projectorWindow || projectorWindow.closed) { setProjectorActive(false); return; } 
+    projectorWindow.postMessage({ type: 'PROJECTOR_UPDATE', payload: { 
+      curQ, showAnswer: showAns, resolved, sel, remaining: tkey, running, 
+      teams: teams.map(t=>({name:t.name, score:t.score, eliminated:t.eliminated, streak:t.streak})), 
+      activeMatchTeams: mTeams, matchTeamIndices: mIdxs, hiddenOptions, extraTime, responseMode, activeResponderTeamIdx,
+      showWait, roundName: showWait ? roundName : '', 
+      showTie, tiePhase: tieState.phase, tieWord: tieState.word, tieRunning: tieState.running, tieTkey: tieState.tkey, tieWinner: tieState.winner, tieTeams: tieState.teams, tieTeamIndexes: tieState.teamIndexes,
+      projectorClear
+    } }, '*'); 
+  }, [curQ, showAns, resolved, sel, running, teams, mTeams, mIdxs, projectorWindow, tkey, hiddenOptions, extraTime, responseMode, activeResponderTeamIdx, showWait, roundName, showTie, tieState, projectorClear]);
   useEffect(() => { sendUpdateToProjector(); }, [sendUpdateToProjector]);
   const openProjector = () => { if (projectorWindow && !projectorWindow.closed) { projectorWindow.focus(); return; } const newWin = window.open(window.location.href + '?projector=1', 'Projector', 'width=1280,height=720,resizable=yes,scrollbars=no,toolbar=no,menubar=no'); if (newWin) { setProjectorWindow(newWin); setProjectorActive(true); const interval = setInterval(() => { if (newWin.closed) { setProjectorActive(false); setProjectorWindow(null); clearInterval(interval); } }, 500); setTimeout(() => sendUpdateToProjector(), 200); } else alert("Permite ventanas emergentes."); };
   const manualSave = () => { persistGameState(); addLog("💾 Partida guardada manualmente"); };
   const newGame = () => { if (confirm("¿Nueva partida? Se perderá el progreso.")) { localStorage.removeItem(gameStateKey); window.location.reload(); } };
   const toggleMusic = async () => { const playing = await AudioEngine.toggleMusic(); setMusicOn(playing); };
+  const exportResults = () => { exportResultsToExcel(teams, log, history); };
   const avail = questions.filter(q=> (fStage===0||q.stage===fStage) && (fLevel===0||q.level===fLevel) && !usedIds.includes(q.id));
   const tieAward = (ti, pts) => { const ri = mIdxs[ti]; if (ri >= 0) setTeamsState(ts=>ts.map((t,i)=>i===ri?{...t,score:t.score+pts}:t)); };
 
@@ -992,7 +1202,7 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
   return ( <>
     {scoreAnims.map(a=>( <ScoreFloat key={a.id} value={a.pts} color={a.col} x={a.x} y={a.y} onDone={()=>removeAnim(a.id)}/> ))}
     {showWait && <WaitScreen roundName={roundName} teams={teams} onClose={()=>setShowWait(false)}/>}
-    {showTie && <TieBreaker teams={teams} teamIndexes={mIdxs.length?mIdxs:active.map((_,i)=>teams.findIndex(t=>t.name===active[i].name))} onClose={()=>setShowTie(false)} onAwardPoints={tieAward} addLog={addLog}/>}
+    {showTie && <TieBreaker teams={teams} teamIndexes={mIdxs.length?mIdxs:active.map((_,i)=>teams.findIndex(t=>t.name===active[i].name))} onClose={()=>{setShowTie(false);}} onAwardPoints={tieAward} addLog={addLog} onStateChange={setTieState}/>}
     <div className="game-grid" style={{ display: "grid", gridTemplateColumns: "260px 1fr 300px", gap: 16, height: "100%", padding: "0 24px" }}>
       <div style={{ display:"flex", flexDirection:"column", gap: 12, overflowY:"auto" }}> <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: 12, backdropFilter: "blur(4px)" }}> <div style={{ fontSize: 10, color: C.outline, letterSpacing: 1, marginBottom: 8 }}>FILTROS</div> <div style={{ display:"flex", gap: 6, marginBottom: 8 }}> {[0,1,2,3].map(s=>( <button key={s} onClick={()=>setFStage(s)} style={{ background: fStage===s ? C.primary : "transparent", color: fStage===s ? C.onPrimary : C.outline, border: `1px solid ${fStage===s ? C.primary : C.outlineVariant}`, borderRadius: 40, padding:"4px 12px", fontSize:10, cursor:"pointer" }}>{s===0?"Todas":`E${s}`}</button> ))} </div> <div style={{ display:"flex", gap: 6, marginBottom: 8 }}> {[0,1,2].map(l=>( <button key={l} onClick={()=>setFLevel(l)} style={{ background: fLevel===l ? C.secondary : "transparent", color: fLevel===l ? C.onSecondary : C.outline, border: `1px solid ${fLevel===l ? C.secondary : C.outlineVariant}`, borderRadius: 40, padding:"4px 12px", fontSize:10, cursor:"pointer" }}>{l===0?"Todos":`Nv${l}`}</button> ))} </div> <div style={{ fontSize: 9, color: C.outline, marginTop: 4 }}>{avail.length} disponibles · {usedIds.length} usadas</div> <button onClick={()=>setUsedIds([])} style={{ background: "transparent", color: C.tertiary, border: `1px solid ${C.tertiary}`, borderRadius: 40, padding:"4px 8px", fontSize:9, cursor:"pointer", marginTop:6 }}>↺ Reiniciar usadas</button> </div> <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: 12, flex:1, overflowY:"auto" }}> <div style={{ fontSize: 10, color: C.outline, letterSpacing: 1, marginBottom: 8 }}>BANCO</div> {avail.map(q=> <div key={q.id} onClick={()=>selectQ(q)} style={{ background: curQ?.id===q.id ? `${SC[q.stage].color}20` : "rgba(255,255,255,0.02)", border: `1px solid ${curQ?.id===q.id ? SC[q.stage].color : C.outlineVariant}`, borderRadius: 12, padding:"8px", marginBottom:6, cursor:"pointer" }}> <div style={{ display:"flex", gap: 6, marginBottom: 4 }}> <span style={{ background: `${SC[q.stage].color}20`, color: SC[q.stage].color, fontSize:8, borderRadius:40, padding:"2px 8px" }}>E{q.stage}</span> <span style={{ background: C.outlineVariant, fontSize:8, borderRadius:40, padding:"2px 8px" }}>Nv{q.level}</span> </div> <div style={{ fontSize: 11, lineHeight: 1.3 }}>{q.text.substring(0,50)}</div> </div> )} </div> </div>
       <div style={{ display:"flex", flexDirection:"column", gap: 12, overflowY:"auto" }}> 
@@ -1005,12 +1215,15 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
           </div> 
         </div> )}
         {renderQCard()} 
-        {matchActive && mTeams.length > 0 && ( <div> <MatchBoard activeTeams={mTeams} teamIndexes={mIdxs} setTeams={setTeamsState} addLog={addLog} teamCardRefs={teamCardRefs} onPaso={()=>{ setCurQ(null); setShowAns(false); setSel({}); setResolved(false); setRunning(false); setTkey(k=>k+1); setExtraTime(0); setHiddenOptions(null); setActiveResponderTeamIdx(null); }} onScoreAnim={triggerAnim} onUseComodin={useComodin}/> <button onClick={endMatch} style={{ background: `${C.error}20`, color: C.error, border: `1px solid ${C.error}`, borderRadius: 40, padding:"8px", fontSize:12, fontWeight:700, cursor:"pointer", width:"100%", marginTop:12 }}>Terminar enfrentamiento →</button> </div> )} 
-        <div style={{ display:"flex", gap: 12, alignItems:"center" }}> 
+        {matchActive && mTeams.length > 0 && ( <div> <MatchBoard activeTeams={mTeams} teamIndexes={mIdxs} setTeams={setTeamsState} addLog={addLog} teamCardRefs={teamCardRefs} onPaso={()=>{ setCurQ(null); setShowAns(false); setSel({}); setResolved(false); setRunning(false); setTkey(k=>k+1); setExtraTime(0); setHiddenOptions(null); setActiveResponderTeamIdx(null); }} onScoreAnim={triggerAnim} onUseComodin={useComodin} responseMode={responseMode} activeResponderTeamIdx={activeResponderTeamIdx}/> <button onClick={endMatch} style={{ background: `${C.error}20`, color: C.error, border: `1px solid ${C.error}`, borderRadius: 40, padding:"8px", fontSize:12, fontWeight:700, cursor:"pointer", width:"100%", marginTop:12 }}>Terminar enfrentamiento →</button> </div> )} 
+        <div style={{ display:"flex", gap: 12, alignItems:"center", flexWrap:"wrap" }}> 
           <button onClick={openProjector} style={{ flex:1, background: projectorActive ? `${C.error}20` : `${C.secondary}20`, border: `1px solid ${projectorActive ? C.error : C.secondary}`, color: projectorActive ? C.error : C.secondary, borderRadius: 40, padding:"8px", fontSize:12, fontWeight:700, cursor:"pointer" }}>{projectorActive ? "✕ Cerrar proyector" : "⛶ Abrir proyector"}</button> 
           <button onClick={manualSave} style={{ flex:1, background: `${C.primary}20`, border: `1px solid ${C.primary}`, color: C.primary, borderRadius: 40, padding:"8px", fontSize:12, fontWeight:700, cursor:"pointer" }}>💾 Guardar</button> 
           <button onClick={newGame} style={{ flex:1, background: `${C.error}20`, border: `1px solid ${C.error}`, color: C.error, borderRadius: 40, padding:"8px", fontSize:12, fontWeight:700, cursor:"pointer" }}>🔄 Nueva</button> 
           <button onClick={toggleMusic} style={{ background: musicOn ? C.primary : C.surfaceContainerHigh, color: musicOn ? C.onPrimary : C.secondary, border: `1px solid ${musicOn ? C.primary : C.secondary}`, borderRadius: 40, padding: "8px 12px", fontSize: 14, cursor: "pointer", width: "auto" }} title={musicOn ? "Detener música" : "Iniciar música"}>{musicOn ? "🎶" : "🎵"}</button>
+          <button onClick={exportResults} style={{ background: `${C.warn}20`, border: `1px solid ${C.warn}`, color: C.warn, borderRadius: 40, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>📊 Exportar resultados</button>
+          <button onClick={clearProjector} style={{ background: `${C.tertiary}20`, border: `1px solid ${C.tertiary}`, color: C.tertiary, borderRadius: 40, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>🌙 Ocultar pregunta</button>
+          <button onClick={showProjector} style={{ background: `${C.primary}20`, border: `1px solid ${C.primary}`, color: C.primary, borderRadius: 40, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>☀️ Mostrar pregunta</button>
         </div> 
         <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: 12, flex:1, overflowY:"auto", minHeight: 100 }}> 
           <div style={{ fontSize: 9, color: C.outline, letterSpacing:1, marginBottom:4 }}>REGISTRO</div> 
@@ -1022,7 +1235,7 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
   </> );
 }
 
-/* ═══════════════════════════════════════════════════════ TEAM SETUP (con logo pequeño en lugar de texto ACTIVATE) ══ */
+/* ═══════════════════════════════════════════════════════ TEAM SETUP ══ */
 function TeamSetup({teams, setTeams, onStart, onLoadGame, hasSave}) {
   const add = () => { if(teams.length>=8)return; setTeams(ts=>[...ts,makeTeam(`Equipo ${ts.length+1}`)]); };
   const rem = i => { if(teams.length<=2)return; setTeams(ts=>ts.filter((_,idx)=>idx!==i)); };
@@ -1033,56 +1246,60 @@ function TeamSetup({teams, setTeams, onStart, onLoadGame, hasSave}) {
       </div> </div> <div style={{ marginBottom: 24 }}> <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: 16 }}> <div style={{ fontSize: 12, color: C.secondary, fontWeight: 700, letterSpacing:1 }}>EQUIPOS ({teams.length})</div> <div style={{ display:"flex", gap: 8 }}> <button onClick={add} disabled={teams.length>=8} style={{ background: teams.length>=8 ? C.outlineVariant : `${C.primary}20`, color: teams.length>=8 ? C.outline : C.primary, border: `1px solid ${teams.length>=8 ? C.outlineVariant : C.primary}`, borderRadius: 40, padding:"6px 16px", fontSize:11, fontWeight:600, cursor: teams.length>=8 ? "default" : "pointer" }}>+ Agregar</button> {hasSave && <button onClick={onLoadGame} style={{ background: `${C.tertiary}20`, color: C.tertiary, border: `1px solid ${C.tertiary}`, borderRadius: 40, padding:"6px 16px", fontSize:11, fontWeight:600, cursor:"pointer" }}>📂 Cargar última</button>} </div> </div> {teams.map((t,i)=>( <div key={i} style={{ display:"flex", alignItems:"center", gap: 12, marginBottom: 10 }}> <div style={{ width: 32, height: 32, borderRadius: "50%", background: `${TC[i%TC.length]}30`, border: `2px solid ${TC[i%TC.length]}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize: 12, fontWeight: 800, color: TC[i%TC.length] }}>{String.fromCharCode(65+i)}</div> <input value={t.name} onChange={e=>ren(i,e.target.value)} style={{ flex:1, background: C.surfaceContainerHigh, border: `1px solid ${C.outlineVariant}`, borderRadius: 12, color: C.onSurface, fontSize: 13, padding:"8px 12px" }}/> <button onClick={()=>rem(i)} disabled={teams.length<=2} style={{ background: `${C.error}20`, color: C.error, border: `1px solid ${C.error}`, borderRadius: 40, width:32, height:32, fontSize:12, cursor: teams.length<=2 ? "default" : "pointer" }}>✕</button> </div> ))} </div> <button onClick={onStart} style={{ width:"100%", background: C.primary, color: C.onPrimary, border:"none", borderRadius: 48, padding:"14px", fontSize: 14, fontWeight: 800, cursor:"pointer", boxShadow: "0 0 15px #97df5c" }}>⚡ COMENZAR TORNEO</button> </div> );
 }
 
-/* ═══════════════════════════════════════════════════════ QManager (con persistencia y botón restablecer) ══ */
-function QManager({questions, setQuestions, onExport, resetToDefault}) {
-  const blank = {id:Date.now(),stage:1,text:"",options:["","","",""],answer:"A",level:1};
-  const [form, setForm] = useState(blank);
-  const [editId, setEditId] = useState(null);
-  const sc = {1:C.secondary, 2:C.tertiary, 3:C.primary};
-  const save = () => { if (!form.text.trim()) return; const q = {...form, id: editId||Date.now(), options: form.stage===1 ? form.options : null, answer:  form.stage===1 ? form.answer  : form.answer }; setQuestions(qs=>editId?qs.map(x=>x.id===editId?q:x):[...qs,q]); setForm({...blank, id:Date.now()}); setEditId(null); };
-  const edit = q => { setForm({...q, options: q.options||["","","",""]}); setEditId(q.id); };
-  const del = id => setQuestions(qs=>qs.filter(q=>q.id!==id));
-  const imp = e => { const file = e.target.files[0]; if(!file) return; const r = new FileReader(); r.onload = ev => { try { setQuestions(JSON.parse(ev.target.result)); } catch {} }; r.readAsText(file); e.target.value=""; };
-  return ( <div style={{ display:"grid", gridTemplateColumns:"340px 1fr", gap: 16, height:"calc(100vh - 80px)", padding:"0 24px" }}> <div style={{ background: C.surfaceContainer, borderRadius: 24, padding: 16, overflowY:"auto", backdropFilter:"blur(4px)" }}> <div style={{ fontSize:12, color:C.secondary, fontWeight:700, letterSpacing:1, marginBottom:12 }}>{editId?"EDITAR PREGUNTA":"NUEVA PREGUNTA"}</div> <div style={{ marginBottom:12 }}> <div style={{ fontSize:9, color:C.outline, marginBottom:4 }}>ETAPA</div> <div style={{ display:"flex", gap:6 }}> {[1,2,3].map(s=>( <button key={s} onClick={()=>setForm(f=>({...f,stage:s}))} style={{ flex:1, background:form.stage===s ? `${sc[s]}20` : "transparent", border:`1px solid ${form.stage===s ? sc[s] : C.outlineVariant}`, color: form.stage===s ? sc[s] : C.outline, borderRadius:40, padding:"5px", fontSize:10, cursor:"pointer" }}>E{s}</button> ))} </div> </div> <div style={{ marginBottom:12 }}> <div style={{ fontSize:9, color:C.outline, marginBottom:4 }}>NIVEL</div> <div style={{ display:"flex", gap:6 }}> {[1,2].map(l=>( <button key={l} onClick={()=>setForm(f=>({...f,level:l}))} style={{ flex:1, background:form.level===l ? `${C.primary}20` : "transparent", border:`1px solid ${form.level===l ? C.primary : C.outlineVariant}`, color: form.level===l ? C.primary : C.outline, borderRadius:40, padding:"5px", fontSize:10, cursor:"pointer" }}>{l===1?"Club Bíblico":"Líderes"}</button> ))} </div> </div> <div style={{ marginBottom:12 }}> <div style={{ fontSize:9, color:C.outline, marginBottom:4 }}>PREGUNTA</div> <textarea value={form.text} onChange={e=>setForm(f=>({...f,text:e.target.value}))} rows={3} style={{ width:"100%", background:C.surfaceContainerHigh, border:`1px solid ${C.outlineVariant}`, borderRadius:12, color:C.onSurface, fontSize:11, padding:"8px 10px", resize:"vertical" }}/> </div> {form.stage===1 && ( <div style={{ marginBottom:12 }}> <div style={{ fontSize:9, color:C.outline, marginBottom:4 }}>OPCIONES</div> {["A","B","C","D"].map((l,i)=>( <div key={l} style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}> <span style={{ width:24, height:24, borderRadius:"50%", background:"rgba(255,255,255,0.1)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700 }}>{l}</span> <input value={form.options[i]||""} onChange={e=>{const o=[...form.options];o[i]=e.target.value;setForm(f=>({...f,options:o}));}} style={{ flex:1, background:C.surfaceContainerHigh, border:`1px solid ${form.answer===l ? C.primary : C.outlineVariant}`, borderRadius:8, color:C.onSurface, fontSize:10, padding:"5px 8px" }}/> <button onClick={()=>setForm(f=>({...f,answer:l}))} style={{ width:24, height:24, borderRadius:"50%", background:form.answer===l ? C.primary : "transparent", border:`1px solid ${form.answer===l ? C.primary : C.outlineVariant}`, color: form.answer===l ? C.onPrimary : C.outline, fontSize:9, cursor:"pointer" }}>✓</button> </div> ))} </div> )} {form.stage!==1 && ( <div style={{ marginBottom:12 }}> <div style={{ fontSize:9, color:C.outline, marginBottom:4 }}>RESPUESTA CORRECTA</div> <textarea value={form.answer} onChange={e=>setForm(f=>({...f,answer:e.target.value}))} rows={2} style={{ width:"100%", background:C.surfaceContainerHigh, border:`1px solid ${C.outlineVariant}`, borderRadius:12, color:C.onSurface, fontSize:11, padding:"8px 10px" }}/> </div> )} <div style={{ display:"flex", gap:8, marginTop:8 }}> <button onClick={save} style={{ flex:1, background:C.primary, color:C.onPrimary, border:"none", borderRadius:40, padding:"8px", fontSize:11, fontWeight:700, cursor:"pointer" }}>{editId?"💾 Actualizar":"+ Agregar"}</button> {editId && <button onClick={()=>{setForm({...blank,id:Date.now()});setEditId(null);}} style={{ background:"transparent", color:C.outline, border:`1px solid ${C.outlineVariant}`, borderRadius:40, padding:"8px", fontSize:11, cursor:"pointer" }}>✕</button>} </div> <div style={{ display:"flex", gap:8, marginTop:12 }}> <button onClick={onExport} style={{ flex:1, background: `${C.secondary}20`, color: C.secondary, border:`1px solid ${C.secondary}`, borderRadius:40, padding:"6px", fontSize:10, fontWeight:600, cursor:"pointer" }}>⬇ Exportar JSON</button> <label style={{ flex:1, background: `${C.tertiary}20`, color: C.tertiary, border:`1px solid ${C.tertiary}`, borderRadius:40, padding:"6px", fontSize:10, fontWeight:600, cursor:"pointer", textAlign:"center" }}> ⬆ Importar JSON <input type="file" accept=".json" onChange={imp} style={{display:"none"}}/> </label> </div> <div style={{ display:"flex", gap:8, marginTop:12 }}> <button onClick={resetToDefault} style={{ flex:1, background: `${C.warn}20`, color: C.warn, border:`1px solid ${C.warn}`, borderRadius:40, padding:"6px", fontSize:10, fontWeight:600, cursor:"pointer" }}>⟳ Restablecer predeterminadas</button> </div> <div style={{ fontSize:9, color:C.outline, textAlign:"center", marginTop:12 }}>{questions.length} preguntas</div> </div> <div style={{ background: C.surfaceContainer, borderRadius: 24, padding: 16, overflowY:"auto" }}> <div style={{ fontSize:12, color:C.secondary, fontWeight:700, marginBottom:12 }}>BANCO DE PREGUNTAS</div> {[1,2,3].map(stage=>{ const qs=questions.filter(q=>q.stage===stage); if(!qs.length) return null; return( <div key={stage} style={{ marginBottom:16 }}> <div style={{ fontSize:10, color:sc[stage], letterSpacing:1, marginBottom:6 }}>{SC[stage].label.toUpperCase()} ({qs.length})</div> {qs.map(q=> ( <div key={q.id} style={{ background: C.surfaceContainerHigh, borderRadius: 12, padding:"8px 10px", marginBottom:6, borderLeft: `4px solid ${sc[stage]}` }}> <div style={{ fontSize:11 }}>{q.text}</div> <div style={{ fontSize:9, color:C.outline, marginTop:2 }}>Nv{q.level} · {q.answer?.substring(0,35)}</div> <div style={{ display:"flex", gap:6, marginTop:6 }}> <button onClick={()=>edit(q)} style={{ background: `${C.secondary}20`, border:"none", borderRadius:40, padding:"2px 12px", fontSize:9, cursor:"pointer" }}>Editar</button> <button onClick={()=>del(q.id)} style={{ background: `${C.error}20`, border:"none", borderRadius:40, padding:"2px 12px", fontSize:9, cursor:"pointer" }}>✕</button> </div> </div> ))} </div> ); })} </div> </div> );
-}
-
-/* ═══════════════════════════════════════════════════════ APP (con persistencia de preguntas y logo) ══ */
+/* ═══════════════════════════════════════════════════════ APP (con carga desde IndexedDB) ══ */
 function App() {
   const [tab, setTab] = useState("setup");
-  const QUESTIONS_STORAGE_KEY = "dilo_como_es_questions";
-  const [questions, setQuestions] = useState(() => {
-    const saved = localStorage.getItem(QUESTIONS_STORAGE_KEY);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch(e) { return DEMO_Q; }
-    }
-    return DEMO_Q;
-  });
-  useEffect(() => {
-    localStorage.setItem(QUESTIONS_STORAGE_KEY, JSON.stringify(questions));
-  }, [questions]);
-  const resetQuestionsToDefault = () => { setQuestions(DEMO_Q); };
-  const [teams, setTeams] = useState([ makeTeam("Equipo Alfa"), makeTeam("Equipo Beta"), makeTeam("Equipo Gamma"), makeTeam("Equipo Delta") ]);
+  const [questions, setQuestions] = useState([]);
+  const [teams, setTeams] = useState(null);
   const [started, setStarted] = useState(false);
   const [savedGameData, setSavedGameData] = useState(null);
-  const GAME_STATE_KEY = "dilo_como_es_save";
-  useEffect(() => { const saved = localStorage.getItem(GAME_STATE_KEY); if (saved) try { setSavedGameData(JSON.parse(saved)); } catch(e) {} }, []);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadData = async () => {
+      await migrateFromLocalStorage();
+      let loadedQuestions = await loadQuestionsFromDB();
+      if (!loadedQuestions || loadedQuestions.length === 0) {
+        loadedQuestions = DEMO_Q;
+        await saveQuestionsToDB(loadedQuestions);
+      }
+      setQuestions(loadedQuestions);
+      const gameState = await loadGameStateFromDB();
+      if (gameState) {
+        setSavedGameData(gameState);
+        setTeams(gameState.teams);
+        setStarted(true);
+        setTab("game");
+      } else {
+        setTeams([makeTeam("Equipo Alfa"), makeTeam("Equipo Beta"), makeTeam("Equipo Gamma"), makeTeam("Equipo Delta")]);
+      }
+      setLoading(false);
+    };
+    loadData();
+  }, []);
+
+  const resetQuestionsToDefault = async () => {
+    setQuestions(DEMO_Q);
+    await saveQuestionsToDB(DEMO_Q);
+  };
   const startNewGame = () => { setStarted(true); setTab("game"); };
   const restoreGame = () => { setStarted(true); setTab("game"); };
-  const resetGame = () => { setStarted(false); setTeams([ makeTeam("Equipo Alfa"), makeTeam("Equipo Beta"), makeTeam("Equipo Gamma"), makeTeam("Equipo Delta") ]); setTab("setup"); };
-  const active = teams.filter(t=>!t.eliminated);
+  const resetGame = () => { setStarted(false); setTeams([makeTeam("Equipo Alfa"), makeTeam("Equipo Beta"), makeTeam("Equipo Gamma"), makeTeam("Equipo Delta")]); setTab("setup"); };
   const exportQ = () => { const blob = new Blob([JSON.stringify(questions,null,2)],{type:"application/json"}); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `preguntas_activate_${new Date().toISOString().slice(0,10)}.json`; a.click(); };
   const urlParams = new URLSearchParams(window.location.search);
   if (urlParams.get('projector') === '1') return <ProjectorView />;
-  if (savedGameData && !started) return ( <div style={{ background: C.bg, height: "100vh", display:"flex", alignItems:"center", justifyContent:"center" }}> <div style={{ background: C.surfaceContainer, borderRadius: 32, padding: 40, maxWidth: 500, textAlign:"center", backdropFilter:"blur(8px)" }}> <div style={{ fontFamily: "'Hanken Grotesk', sans-serif", fontSize: 28, fontWeight: 800, color: C.primary, marginBottom: 16 }}>DILO COMO ES</div> <div style={{ fontSize: 14, color: C.outline, marginBottom: 24 }}>Partida guardada encontrada</div> <div style={{ background: C.surfaceContainerHigh, borderRadius: 20, padding: 16, marginBottom: 24, textAlign:"left" }}> <div style={{ fontSize: 12, color: C.secondary }}>Resumen:</div> <div style={{ fontSize: 11 }}>Ronda: {savedGameData.roundName}</div> <div style={{ fontSize: 11 }}>Equipos activos: {savedGameData.teams.filter(t=>!t.eliminated).length}</div> </div> <div style={{ display:"flex", gap: 12 }}> <button onClick={restoreGame} style={{ flex:1, background: C.primary, color: C.onPrimary, border:"none", borderRadius: 40, padding:"12px", fontWeight:700, cursor:"pointer" }}>▶ Restaurar</button> <button onClick={()=>{localStorage.removeItem(GAME_STATE_KEY); setSavedGameData(null);}} style={{ flex:1, background: "transparent", border: `1px solid ${C.outlineVariant}`, color: C.outline, borderRadius: 40, padding:"12px", fontWeight:600, cursor:"pointer" }}>🔄 Nueva</button> </div> </div> </div> );
+  if (loading) {
+    return <div style={{ background: C.bg, height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.onSurface, fontSize: 20 }}>Cargando datos...</div>;
+  }
+  if (savedGameData && !started) {
+    return ( <div style={{ background: C.bg, height: "100vh", display:"flex", alignItems:"center", justifyContent:"center" }}> <div style={{ background: C.surfaceContainer, borderRadius: 32, padding: 40, maxWidth: 500, textAlign:"center", backdropFilter:"blur(8px)" }}> <div style={{ fontFamily: "'Hanken Grotesk', sans-serif", fontSize: 28, fontWeight: 800, color: C.primary, marginBottom: 16 }}>DILO COMO ES</div> <div style={{ fontSize: 14, color: C.outline, marginBottom: 24 }}>Partida guardada encontrada</div> <div style={{ background: C.surfaceContainerHigh, borderRadius: 20, padding: 16, marginBottom: 24, textAlign:"left" }}> <div style={{ fontSize: 12, color: C.secondary }}>Resumen:</div> <div style={{ fontSize: 11 }}>Ronda: {savedGameData.roundName}</div> <div style={{ fontSize: 11 }}>Equipos activos: {savedGameData.teams.filter(t=>!t.eliminated).length}</div> </div> <div style={{ display:"flex", gap: 12 }}> <button onClick={restoreGame} style={{ flex:1, background: C.primary, color: C.onPrimary, border:"none", borderRadius: 40, padding:"12px", fontWeight:700, cursor:"pointer" }}>▶ Restaurar</button> <button onClick={()=>{ localStorage.removeItem('dilo_como_es_save'); setSavedGameData(null); }} style={{ flex:1, background: "transparent", border: `1px solid ${C.outlineVariant}`, color: C.outline, borderRadius: 40, padding:"12px", fontWeight:600, cursor:"pointer" }}>🔄 Nueva</button> </div> </div> </div> );
+  }
   return ( <div style={{ background: C.bg, height: "100vh", display: "flex", flexDirection: "column" }}> <div style={{ background: C.surfaceContainerLowest, padding: "0 24px", display:"flex", alignItems:"center", borderBottom: `2px solid ${C.primary}`, flexShrink:0 }}> <div style={{ display:"flex", alignItems:"center", gap:12, padding:"8px 0", marginRight:24 }}>
         <svg viewBox="0 0 3450 1313" style={{ height: '24px', width: 'auto' }}><use href="#logo-svg-defs" /></svg>
         <div style={{ fontWeight:600, color: C.onSurface }}>Dilo Como Es!</div>
-      </div> {started ? ( <> {[["game","🎮 Juego"],["questions","📋 Preguntas"],["sound","🎵 Sonidos"]].map(([id,lbl])=>( <button key={id} onClick={()=>setTab(id)} style={{ background: tab===id ? `${C.primary}20` : "transparent", color: tab===id ? C.primary : C.outline, border: "none", borderBottom: tab===id ? `2px solid ${C.primary}` : "2px solid transparent", padding:"12px 20px", fontSize:12, cursor:"pointer", fontWeight: tab===id ? 600 : 400 }}>{lbl}</button> ))} <div style={{ marginLeft:"auto", display:"flex", gap: 12, alignItems:"center" }}> <span style={{ fontSize:10, color:C.outline }}>{active.length} activos</span> {active.slice(0,2).map((t,i)=>{ const idx=teams.findIndex(x=>x.name===t.name); return <span key={i} style={{ fontSize:11, color:TC[idx%TC.length], fontWeight:600 }}>{t.name}: {t.score}</span>; })} <button onClick={resetGame} style={{ background: `${C.error}20`, color: C.error, border: `1px solid ${C.error}`, borderRadius: 40, padding:"4px 12px", fontSize:10, cursor:"pointer" }}>Reiniciar</button> </div> </> ) : ( [["setup","⚙️ Equipos"],["questions","📋 Preguntas"]].map(([id,lbl])=>( <button key={id} onClick={()=>setTab(id)} style={{ background: tab===id ? `${C.primary}20` : "transparent", color: tab===id ? C.primary : C.outline, border: "none", borderBottom: tab===id ? `2px solid ${C.primary}` : "2px solid transparent", padding:"12px 20px", fontSize:12, cursor:"pointer" }}>{lbl}</button> )) )} </div> <div style={{ flex:1, padding:"20px 24px", overflowY:"auto" }}> {tab==="setup" && <TeamSetup teams={teams} setTeams={setTeams} onStart={startNewGame} onLoadGame={restoreGame} hasSave={!!savedGameData}/>} {tab==="questions" && <QManager questions={questions} setQuestions={setQuestions} onExport={exportQ} resetToDefault={resetQuestionsToDefault}/>} {tab==="game" && started && <GameView questions={questions} teams={teams} setTeams={setTeams} initialState={savedGameData} gameStateKey={GAME_STATE_KEY}/>} {tab==="sound" && <SoundManager />} </div> </div> );
+      </div> {started ? ( <> {[["game","🎮 Juego"],["questions","📋 Preguntas"],["sound","🎵 Sonidos"]].map(([id,lbl])=>( <button key={id} onClick={()=>setTab(id)} style={{ background: tab===id ? `${C.primary}20` : "transparent", color: tab===id ? C.primary : C.outline, border: "none", borderBottom: tab===id ? `2px solid ${C.primary}` : "2px solid transparent", padding:"12px 20px", fontSize:12, cursor:"pointer", fontWeight: tab===id ? 600 : 400 }}>{lbl}</button> ))} <div style={{ marginLeft:"auto", display:"flex", gap: 12, alignItems:"center" }}> <span style={{ fontSize:10, color:C.outline }}>{teams.filter(t=>!t.eliminated).length} activos</span> <button onClick={resetGame} style={{ background: `${C.error}20`, color: C.error, border: `1px solid ${C.error}`, borderRadius: 40, padding:"4px 12px", fontSize:10, cursor:"pointer" }}>Reiniciar</button> </div> </> ) : ( [["setup","⚙️ Equipos"],["questions","📋 Preguntas"]].map(([id,lbl])=>( <button key={id} onClick={()=>setTab(id)} style={{ background: tab===id ? `${C.primary}20` : "transparent", color: tab===id ? C.primary : C.outline, border: "none", borderBottom: tab===id ? `2px solid ${C.primary}` : "2px solid transparent", padding:"12px 20px", fontSize:12, cursor:"pointer" }}>{lbl}</button> )) )} </div> <div style={{ flex:1, padding:"20px 24px", overflowY:"auto" }}> {tab==="setup" && <TeamSetup teams={teams} setTeams={setTeams} onStart={startNewGame} onLoadGame={restoreGame} hasSave={!!savedGameData}/>} {tab==="questions" && <QManager questions={questions} setQuestions={setQuestions} onExport={exportQ} resetToDefault={resetQuestionsToDefault}/>} {tab==="game" && started && <GameView questions={questions} teams={teams} setTeams={setTeams} initialState={savedGameData} gameStateKey={GAME_STATE_KEY}/>} {tab==="sound" && <SoundManager />} </div> </div> );
 }
 
-// Root con pantalla de carga
 function Root() {
   const [audioReady, setAudioReady] = useState(false);
   useEffect(() => {
@@ -1091,7 +1308,6 @@ function Root() {
   if (!audioReady) {
     return <div style={{ background: C.bg, height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.onSurface, fontSize: 20 }}>Cargando sonidos...</div>;
   }
-  // Al iniciar la app, comenzar música de inicio
   AudioEngine.startMusic('start');
   return (
     <>
@@ -1101,6 +1317,7 @@ function Root() {
   );
 }
 
+const GAME_STATE_KEY = 'dilo_como_es_save';
 ReactDOM.createRoot(document.getElementById("root")).render(<Root />);
 </script>
 </body>

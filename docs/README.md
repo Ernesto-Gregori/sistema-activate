@@ -9,21 +9,21 @@ Totalmente offline después de la primera carga. Persistencia completa de partid
 - ⏱️ Temporizador por pregunta (10s, 15s, 20s) con cuenta regresiva audible.
 - 🃏 Comodines: 50/50, Ayuda Capitán (+5s), Cambio de pregunta.
 - 🎵 **Música por fases**: pista independiente para inicio, ronda inicial, semifinal, final y desempate. Cada fase puede tener su propia canción personalizada.
-- 🔊 **Sonidos personalizables**: todos los efectos (acierto, error, timeout, tick, fanfarria, comodín, countdown) se pueden reemplazar por archivos MP3/WAV/OGG.
-- 💾 **Persistencia total en IndexedDB**: los sonidos y músicas cargados no se pierden al recargar la página.
+- 🔊 **Sonidos personalizables**: todos los efectos (acierto, error, timeout, tick, fanfarria, comodín, countdown, fin de ronda) se pueden reemplazar por archivos MP3/WAV/OGG.
+- 💾 **Persistencia total en IndexedDB**: los sonidos y músicas cargados no se pierden al recargar la página. Las preguntas también se guardan en IndexedDB (sin límite de tamaño).
 - 👥 Dos modos de respuesta en Etapa 1: todos responden o un equipo por turno.
-- 🖥️ Vista proyector en ventana independiente sincronizada.
-- 💾 Guardado automático y manual del estado del juego (localStorage).
-- 📋 Banco de preguntas persistente (importar/exportar JSON).
+- 🖥️ Vista proyector en ventana independiente sincronizada, con opción de pantalla de transición entre preguntas.
+- 💾 Guardado automático y manual del estado del juego (IndexedDB).
+- 📋 Banco de preguntas persistente (importar/exportar Excel y JSON).
 - 📡 Modo offline total mediante Service Worker.
 
 ## Tecnologías utilizadas
 - React 18 (sin build, usando Babel standalone)
 - Web Audio API
-- IndexedDB (para sonidos personalizados)
-- localStorage (para partidas y preguntas)
+- IndexedDB (para sonidos, músicas, preguntas y estado del torneo)
 - Service Worker (caché de dependencias)
 - CSS Grid / Flexbox (responsive)
+- SheetJS (XLSX) para importar/exportar preguntas y resultados.
 
 ## Requisitos del sistema
 - Navegador moderno (Chrome 90+, Edge 90+, Firefox 88+).
@@ -37,10 +37,10 @@ Totalmente offline después de la primera carga. Persistencia completa de partid
 
 ## Personalización avanzada
 - **Sonidos propios**: ve a la pestaña "🎵 Sonidos" y carga archivos para cada evento o fase musical.
-- **Preguntas**: edita el banco de preguntas desde la pestaña "📋 Preguntas" (puedes importar/exportar JSON).
+- **Preguntas**: edita el banco de preguntas desde la pestaña "📋 Preguntas" (puedes importar/exportar Excel).
 - **Colores de equipos**: modificar el array `TC` en el código.
 - **Tiempos y puntajes**: modificar el objeto `SC` en el código.
 
 ## Autores
-Desarrollado para Palabra de Vida.  
-Mantenido por Ernesto Gregori.
+Desarrollado para [nombre de la iglesia / evento].  
+Mantenido por [tu nombre / equipo].
