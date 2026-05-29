@@ -1,58 +1,541 @@
-# 🛠️ Documento técnico – Arquitectura y componentes
+# Documento técnico – Dilo Como Es ACTIVATE 2026
 
-## 1. Estructura del archivo
-- HTML único con estilos CSS, código JavaScript (Babel) e inline Service Worker.
-- Dependencias externas (cargadas desde CDN) pero cacheadas localmente.
+Este documento describe la arquitectura interna, los flujos de datos y las APIs utilizadas.
 
-## 2. Componentes React principales
+---
 
-| Componente | Función |
-|------------|---------|
-| `App` | Maneja pestañas (setup, questions, game, sound) y persistencia global (preguntas, estado del torneo). |
-| `TeamSetup` | Configuración de nombres de equipos. |
-| `QManager` | CRUD de preguntas, import/export (JSON y Excel), reset a valores por defecto. |
-| `SoundManager` | Configuración de sonidos personalizados y música por fases. Usa IndexedDB. |
-| `GameView` | Control central del torneo: enfrentamientos, preguntas, puntajes, música de fondo, sincronización con proyector. |
-| `MatchBoard` | Panel de control de un enfrentamiento (puntos rápidos, comodines, racha de aciertos). |
-| `ProjectorView` | Vista para pantalla pública (se abre en ventana nueva). Recibe actualizaciones vía `postMessage`. |
-| `TournamentMgr` | Muestra enfrentamientos, posiciones, historial y opciones de ronda. Detecta cambios de fase musical. |
-| `TieBreaker` | Modal para resolver empates por recitación de un texto. Cambia la música a fase "tiebreaker". |
-| `Timer` | Componente visual de cuenta regresiva con sonido de tick. |
-| `WaitScreen` | Pantalla de transición entre rondas. |
-| `RoundHistory` | Historial colapsable de rondas completadas. |
-| `ScoreFloat` | Animación de puntos flotantes. |
-| `AudioEngine` | Módulo singleton para manejo de Web Audio. Gestiona buffers de sonidos y música, IndexedDB, y reproducción por fases. |
+# 🏗️ Arquitectura general
 
-## 3. Estados persistentes
+La aplicación es un **Single Page Application (SPA)** implementada en un único archivo HTML.
 
-| Clave / Base de datos | Contenido | Almacenamiento |
-|----------------------|-----------|----------------|
-| `DiloGameDB` (gameState) | Estado completo del torneo (equipos, puntajes, rondas, enfrentamientos, pregunta activa, selecciones, etc.) | IndexedDB |
-| `DiloGameDB` (questions) | Banco de preguntas personalizado (cada pregunta con `id`, `stage`, `level`, `text`, `options`, `answer`) | IndexedDB |
-| `DiloSoundDB` (sounds) | Buffers de sonidos personalizados y músicas por fase. Claves: `correct`, `wrong`, `timeout`, `tick`, `fanfare`, `joker`, `countdown`, `roundEnd`, `music_start`, `music_initial`, `music_semifinal`, `music_final`, `music_tiebreaker` | IndexedDB |
+Utiliza:
 
-## 4. Música por fases
-- **Fases**: `start`, `initial`, `semifinal`, `final`, `tiebreaker`.
-- `AudioEngine.musicBuffers` guarda los buffers para cada fase.
-- Si no hay buffer personalizado, se usa una síntesis de acordes con tempo y notas adaptadas a la fase (ver `playDefaultMusicForPhase`).
-- `TournamentMgr` observa `roundName` y llama a `AudioEngine.setMusicPhase()` con la fase correspondiente.
-- `TieBreaker` cambia a `tiebreaker` al abrirse, y el cierre del modal no restaura la música automáticamente (se deja que `TournamentMgr` lo haga al actualizar la ronda).
+* **React 18** (vía CDN) con JSX transformado por Babel en tiempo real.
+* **IndexedDB** para persistencia offline.
+* **Web Audio API** para sonidos y música.
+* **BroadcastChannel** para comunicación entre pestañas (control remoto y proyector).
+* **Service Worker** para caché de recursos estáticos y modo offline.
 
-## 5. Flujo de datos
-- `GameView` envía actualizaciones al `ProjectorView` mediante `postMessage` cada vez que cambia el estado (pregunta, temporizador, selecciones, modo respuesta, ocultar/mostrar, desempate, etc.).
-- Los cambios en preguntas o torneo se guardan automáticamente en IndexedDB con `useEffect`.
-- El Service Worker intercepta las peticiones a CDNs y sirve respuestas cacheadas.
-- Los archivos de audio se cargan, se clonan (`arrayBuffer.slice(0)`) para evitar el error "detached ArrayBuffer", se decodifican y se guardan en IndexedDB. El buffer decodificado se usa para reproducción.
+El código se organiza en componentes funcionales con hooks:
 
-## 6. Seguridad y limitaciones
-- No se envía información a ningún servidor.
-- Máximo 8 equipos por diseño (ajustable en `TeamSetup`).
-- Las preguntas de Etapa 1 deben tener exactamente 4 opciones.
-- Las preguntas de Etapa 2 y 3 usan campo `answer` (texto).
-- Los archivos de audio deben ser compatibles con `AudioContext.decodeAudioData` (MP3, WAV, OGG son soportados en la mayoría de navegadores).
+* `useState`
+* `useEffect`
+* `useCallback`
+* `useMemo`
+* `useRef`
 
-## 7. Personalización avanzada
-- Colores de equipos: modificar el array `TC` en el código.
-- Tiempos y puntajes: modificar el objeto `SC`.
-- Preguntas iniciales: modificar `DEMO_Q`.
-- Frecuencias y tempo de la música sintética por defecto: modificar `playDefaultMusicForPhase`.
+---
+
+# 📦 Módulos principales
+
+## `AudioEngine`
+
+Objeto global que maneja toda la reproducción de audio.
+
+### Almacenamiento
+
+Los buffers de audio se guardan en `DiloSoundDB` bajo las claves:
+
+* `correct`
+* `wrong`
+* `timeout`
+* `tick`
+* `fanfare`
+* `joker`
+* `countdown`
+* `roundEnd`
+
+Y también:
+
+* `music_*` para las fases.
+
+### Métodos clave
+
+```js
+correct()
+wrong()
+timeout()
+tick()
+fanfare()
+joker()
+countdown()
+roundEnd()
+
+startMusic(phase)
+stopMusic()
+toggleMusic()
+setMusicPhase(phase)
+
+setCustomSound(type, file)
+resetToDefaultSound(type)
+
+setCustomMusic(phase, file)
+resetToDefaultMusic(phase)
+
+playTestSound(type)
+```
+
+### Música por fases
+
+Internamente, si no hay buffer personalizado, genera melodías simples con osciladores (`sine`).
+
+### Reanudación automática
+
+En navegadores que suspenden `AudioContext`, se reanuda al primer `playSound` o al hacer clic en un botón.
+
+---
+
+## `GameView`
+
+Componente principal del juego.
+
+Maneja:
+
+* Estado del torneo (`teams`, `roundMatches`, `matchIdx`, `roundName`, `history`)
+* Pregunta actual (`curQ`)
+* Temporizador (`running`, `remaining`, `extraTime`)
+* Respuestas de equipos (`sel`)
+* Modo de respuesta
+* Comodines
+* Sincronización con el proyector mediante `sendUpdateToProjector()`
+* Persistencia en IndexedDB
+
+### Flujo de datos
+
+1. El usuario selecciona una pregunta → `setCurQ`
+2. Inicia temporizador → `setRunning(true)`
+3. Los equipos seleccionan opciones → `handleSelect`
+4. Confirmación → `handleReveal`
+5. Actualización de puntajes → `setTeamsState`
+6. Animaciones → `triggerAnim`
+7. Registro de historial → `addToHistory`
+8. Finalización de enfrentamiento → `endMatch`
+9. Eliminación de equipos → `elimLowest`
+
+Cada cambio relevante dispara:
+
+```js
+sendUpdateToProjector()
+```
+
+mediante un `useEffect` que depende de estados descompuestos en primitivas para evitar loops.
+
+---
+
+## `ProjectorView`
+
+Componente que se renderiza cuando la URL contiene:
+
+```txt
+?projector=1
+```
+
+Escucha mensajes `postMessage` tipo:
+
+```js
+PROJECTOR_UPDATE
+```
+
+y actualiza su estado local.
+
+### Renderiza:
+
+* `showWait` → pantalla de espera
+* `showTie` → interfaz de desempate
+* `projectorClear` → pantalla “PREPÁRATE”
+* `winner` → pantalla de campeón
+* Vista normal → pregunta, opciones, temporizador y selecciones
+
+### Hooks utilizados
+
+* `useEffect` para sincronizar fuentes
+* `useEffect` para efectos visuales y confeti
+
+---
+
+## `TieBreaker`
+
+Modal para gestionar desempates.
+
+### Props principales
+
+```js
+teams
+teamIndexes
+onAwardPoints
+```
+
+### Comunicación con `GameView`
+
+Utiliza:
+
+```js
+onStateChange()
+```
+
+para notificar cambios en:
+
+* `phase`
+* `word`
+* `running`
+* etc.
+
+De esta forma el proyector refleja el estado actual del desempate.
+
+---
+
+# 💾 Persistencia
+
+## Funciones principales
+
+* `openGameDB`
+* `saveGameStateToDB`
+* etc.
+
+Utilizan:
+
+```js
+indexedDB.open()
+```
+
+### Stores definidas
+
+#### `gameState`
+
+Guarda:
+
+```js
+'current'
+```
+
+con el objeto completo del estado.
+
+#### `questions`
+
+Cada pregunta utiliza su `id` como `keyPath`.
+
+#### `settings`
+
+Guarda:
+
+* `stageConfig`
+* `waitConfig`
+
+#### `questionHistory`
+
+Store autoincremental para historial.
+
+### Migración
+
+Al iniciar la app se migran datos desde `localStorage` si existían.
+
+---
+
+# 📡 BroadcastChannel
+
+## Canal `'dilocontrol'`
+
+El control remoto envía comandos:
+
+```js
+{ command: 'start' }
+```
+
+`GameView` los recibe y ejecuta mediante:
+
+```js
+voiceCommandHandler()
+```
+
+---
+
+## Canal `'dilo_debugger'`
+
+`GameView` envía el payload del proyector para que:
+
+```txt
+debugger.html
+```
+
+intercepte y muestre el estado.
+
+---
+
+# ⚙️ Service Worker
+
+Registrado en el evento:
+
+```js
+load
+```
+
+### Funcionalidades
+
+* Cachea recursos estáticos
+* Funciona offline
+* Usa estrategia `cache-first`
+* Actualización en segundo plano
+
+### Recursos cacheados
+
+* React
+* Babel
+* SheetJS
+* Fuentes
+* `index.html`
+
+---
+
+# 🔄 Flujo de sincronización del proyector
+
+1. `GameView` define:
+
+```js
+sendUpdateToProjector()
+```
+
+2. Los cambios relevantes ejecutan un `useEffect`
+3. `sendUpdateToProjector`:
+
+   * Envía `postMessage`
+   * Envía datos por `BroadcastChannel`
+4. `ProjectorView` escucha:
+
+```js
+window.addEventListener('message')
+```
+
+y actualiza su estado.
+
+---
+
+## ⚠️ Precaución contra loops infinitos
+
+Las dependencias del `useEffect` se desglosan en valores primitivos:
+
+```js
+tieState.phase
+tieState.word
+```
+
+en lugar del objeto completo:
+
+```js
+tieState
+```
+
+Esto evita cambios de referencia en cada render.
+
+---
+
+# 🧪 Utilidades de depuración
+
+## `debugger.html`
+
+Herramienta independiente que:
+
+* Escucha `BroadcastChannel('dilo_debugger')`
+* Escucha `postMessage`
+* Muestra el árbol de estado
+* Ejecuta tests automáticos
+* Detecta loops infinitos
+* Verifica:
+
+  * timer
+  * conexión del proyector
+  * lógica de winner
+  * IndexedDB
+  * etc.
+
+---
+
+# 🛠️ Extensibilidad
+
+## Agregar un nuevo tipo de pregunta
+
+### 1. Añadir entrada en `QUESTION_TYPES`
+
+```js
+nuevo_tipo: {
+  id: "nuevo_tipo",
+  label: "Etiqueta",
+  icon: "🆕",
+  color: "#color",
+  defaultTime: 10,
+  defaultCorrect: 100,
+  defaultIncorrect: -50,
+  hasOptions: true,
+  hasAnswer: true,
+  answerIsLetter: false,
+  timerVisible: true,
+  description: "...",
+  evaluate: (q, teamAnswer) => boolean || null,
+  revealMode: "highlight_option",
+  twoOptionsOnly: false,
+  hasMedia: false
+}
+```
+
+---
+
+### 2. Actualizar migraciones
+
+Modificar:
+
+* `migrateQuestion`
+* `STAGE_TO_TYPE`
+* `TYPE_TO_STAGE`
+
+si el nuevo tipo pertenece a una etapa existente.
+
+---
+
+### 3. Actualizar el editor (`QManager`)
+
+Mostrar los campos correctos:
+
+* opciones
+* respuestas
+* multimedia
+* etc.
+
+---
+
+### 4. Actualizar lógica de renderizado
+
+#### `ProjectorView`
+
+El renderizado ya es genérico usando:
+
+* `hasOptions`
+* `revealMode`
+
+#### `GameView`
+
+La evaluación utiliza:
+
+```js
+getQType(q).evaluate
+```
+
+Si es `null`, se realiza evaluación manual.
+
+---
+
+# 🎵 Personalizar música por fases
+
+Las fases válidas son exactamente:
+
+```txt
+start
+initial
+semifinal
+final
+tiebreaker
+```
+
+`AudioEngine` reconoce estas fases y permite sobrescribirlas mediante:
+
+```js
+setCustomMusic()
+```
+
+---
+
+# 🔒 Consideraciones de seguridad
+
+* Todas las operaciones de IndexedDB son asíncronas.
+* Los comandos de `BroadcastChannel` no están autenticados.
+* Cualquier pestaña podría controlar el juego.
+* El entorno asume una red cerrada de evento.
+* El Service Worker solo cachea recursos del mismo origen.
+
+---
+
+# 🚦 Rendimiento
+
+* Componentes memoizados con `React.memo`
+* Temporizador implementado con `setInterval`
+* Limpieza correcta de intervalos
+* `postMessage` para sincronización rápida
+* Límite de logs:
+
+  * 300 entradas máximas
+
+---
+
+# 📱 Compatibilidad
+
+## Chrome / Edge 80+
+
+Funcionamiento óptimo.
+
+---
+
+## Firefox 75+
+
+Funciona correctamente, aunque el audio puede requerir interacción del usuario.
+
+---
+
+## Safari 14+
+
+Requiere iniciar `AudioContext` dentro de un gesto del usuario.
+
+Esto se maneja automáticamente al hacer clic en botones de sonido.
+
+### Requisito adicional
+
+El Service Worker requiere HTTPS en producción.
+
+---
+
+# 🧪 Pruebas sugeridas
+
+## Ejecutar tests automáticos
+
+Abrir:
+
+```txt
+debugger.html
+```
+
+y ejecutar:
+
+```txt
+Ejecutar todos los tests
+```
+
+---
+
+## Validaciones recomendadas
+
+### Offline
+
+Simular pérdida de conexión tras la primera carga.
+
+Debe seguir funcionando.
+
+---
+
+### Reconexión del proyector
+
+Cerrar y abrir el proyector varias veces.
+
+Debe reconectarse correctamente.
+
+---
+
+### Control remoto
+
+Usar el control remoto desde otro navegador o dispositivo.
+
+---
+
+### Estrés de preguntas
+
+Crear muchas preguntas y verificar:
+
+* paginación
+* filtros
+* rendimiento general

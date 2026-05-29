@@ -1,63 +1,98 @@
-# 🔧 Documento de mantenimiento
+# Mantenimiento del sistema "Dilo Como Es"
 
-## 1. Actualización de preguntas
-### Desde la interfaz
-1. Ir a la pestaña **"📋 Preguntas"**.
-2. Usar el formulario para agregar, editar o eliminar preguntas.
-3. Exportar a JSON o Excel como respaldo.
+Este documento explica cómo administrar, respaldar y solucionar problemas comunes del sistema.
 
-### Desde Excel
-1. Crear un archivo Excel con las columnas: `etapa`, `nivel`, `texto`, `opciones` (separadas por `|`), `respuesta`.
-2. En la pestaña **"📋 Preguntas"**, usar **"📊 Importar Excel"** y seleccionar el archivo.
-3. Las preguntas importadas reemplazarán el banco actual.
+## 📦 Respaldo y restauración de datos
 
-## 2. Personalización de sonidos y música
-### Sonidos de eventos
-- Ir a la pestaña **"🎵 Sonidos"**.
-- Para cada efecto, usar **"📁 Cargar"** y seleccionar un archivo de audio (MP3, WAV, OGG).
-- El sonido se guarda automáticamente en IndexedDB y se reemplaza el predefinido.
-- Usar **"🔊 Probar"** para escuchar el sonido actual.
-- Usar **"🔄 Restaurar predefinido"** para volver al sonido sintético original.
+### Datos guardados en IndexedDB
 
-### Música por fases
-- Misma pestaña, sección "Música por fases".
-- Cada fase (inicio, ronda inicial, semifinal, final, desempate) puede tener su propia canción.
-- Al cargar un archivo para una fase, la música cambiará automáticamente si esa fase está activa.
-- Si no se carga música para una fase, se usará la versión sintética por defecto (con tensión creciente).
+El sistema usa dos bases de datos:
 
-## 3. Respaldo de partidas
-- La partida se guarda automáticamente en IndexedDB cada 30 segundos y tras cada acción relevante.
-- Para respaldo manual:
-  - Abrir DevTools (F12) → **Aplicación** → **IndexedDB** → `DiloGameDB` → `gameState` → copiar el valor.
-  - También se puede usar el botón **💾 Guardar** (que fuerza una escritura en IndexedDB).
-- Los sonidos personalizados se guardan en `DiloSoundDB` (persisten entre sesiones).
+- `DiloGameDB` – contiene el estado actual del torneo y las preguntas.
+- `DiloSoundDB` – contiene los buffers de sonidos y música personalizados.
 
-## 4. Restauración de una partida guardada
-- Si se cerró el navegador, al abrir la página aparecerá la opción **"Restaurar"** (si existe una partida en IndexedDB).
-- Si se perdió IndexedDB (por ejemplo, al limpiar datos del navegador), no hay forma de recuperar la partida a menos que se haya exportado previamente el estado.
+Para **respaldar** manualmente:
 
-## 5. Limpieza de datos
-- Para reiniciar completamente el torneo: botón **"🔄 Nueva"**.
-- Para borrar solo las preguntas personalizadas y volver a las predeterminadas: botón **"⟳ Restablecer predeterminadas"** en la pestaña preguntas.
-- Para borrar todos los datos (partida + preguntas + sonidos personalizados):
-  - Abrir DevTools → **Aplicación** → **IndexedDB** → Eliminar las bases de datos `DiloGameDB` y `DiloSoundDB`.
-- Para borrar solo los sonidos personalizados pero mantener la partida y preguntas:
-  - En la pestaña "🎵 Sonidos", usar **"🔄 Restaurar predefinido"** para cada sonido/fase, o eliminar manualmente la base de datos `DiloSoundDB`.
+1. Abre las herramientas de desarrollador (F12).
+2. Ve a la pestaña **Application** → **IndexedDB**.
+3. Haz clic derecho en `DiloGameDB` → **Exportar** (guardar como JSON).
+4. Repite con `DiloSoundDB`.
 
-## 6. Solución de problemas comunes
+Para **restaurar**:
+
+- Usa la misma herramienta para importar los JSON.
+
+> 💡 El juego también guarda automáticamente el estado del torneo cada 30 segundos y al cambiar de pantalla.
+
+### Exportación de resultados del torneo
+
+Desde la pantalla principal, haz clic en **📊 Exportar resultados**. Se generará un archivo Excel con:
+
+- Resumen de equipos (puntaje final, eliminado)
+- Detalle de eventos (log)
+- Ranking final
+- Rondas jugadas
+
+## 🛠️ Personalización avanzada
+
+### Sonidos y música por fases
+
+Usa la pestaña **🔊 Sonidos**. Puedes cargar archivos MP3, WAV o OGG para cada evento:
+
+| Evento            | Clave interna         |
+|-------------------|-----------------------|
+| Acierto           | `correct`             |
+| Error             | `wrong`               |
+| Tiempo agotado    | `timeout`             |
+| Tick (cuenta regresiva) | `tick`         |
+| Fanfarria (desempate) | `fanfare`         |
+| Comodín           | `joker`               |
+| Inicio de cuenta regresiva | `countdown`   |
+| Fin de ronda      | `roundEnd`            |
+| Música de inicio  | `music_start`         |
+| Música ronda inicial / cuartos | `music_initial` |
+| Música semifinal  | `music_semifinal`     |
+| Música final      | `music_final`         |
+| Música desempate  | `music_tiebreaker`    |
+
+Los archivos se guardan en `DiloSoundDB`. Para restaurar el sonido por defecto, haz clic en **Restaurar predefinido**.
+
+### Pantalla de espera
+
+En **Ajustes** → **Pantalla de espera personalizable**:
+
+- **Mensaje** – texto que se muestra.
+- **Imagen** – puedes subir una imagen (se convierte a base64 y se guarda en IndexedDB).
+
+### Preguntas
+
+Desde la pestaña **📋 Preguntas**:
+
+- **Importar Excel**: el archivo debe tener columnas: `tipo`, `etapa`, `nivel`, `texto`, `opciones` (separadas por `|`), `respuesta`.
+- **Importar JSON**: estructura de array de objetos.
+- **Exportar**: tanto JSON como Excel.
+
+## ⚠️ Solución de problemas comunes
 
 | Problema | Posible causa | Solución |
 |----------|---------------|----------|
-| El proyector no muestra nada | Ventana bloqueada por popup | Permitir ventanas emergentes en el navegador. |
-| No se escucha sonido/música | AudioContext suspendido | Hacer clic en el botón 🎵 (esto reanuda el contexto). |
-| Las preguntas personalizadas desaparecen | Se borró IndexedDB o se cambió de navegador | Exportar periódicamente el banco de preguntas a Excel/JSON. |
-| El torneo no avanza | Enfrentamiento no generado | Hacer clic en **"⚡ Generar enfrentamientos"** en la columna derecha. |
-| El temporizador se detiene | Se pausó manualmente o el equipo usó PASO | Verificar estado del botón ⏸. |
-| Al cargar un sonido aparece error `ArrayBuffer is detached` | (Este error ya está corregido) | Asegurar que se usa `arrayBuffer.slice(0)` antes de decodificar. |
-| La música no cambia de fase automáticamente | El nombre de la ronda no coincide con las fases esperadas (`Ronda Inicial`, `Cuartos de Final`, `Semifinal`, `Final`) | Verificar en `TournamentMgr` que `roundName` tenga exactamente esos valores. |
-| El temporizador de desempate no avanza | El estado `running` no se está actualizando correctamente | Asegurar que el callback `onStateChange` se llame cada vez que cambia el estado dentro de `TieBreaker`. |
+| El proyector no se actualiza | Bloqueo de ventanas emergentes | Permite ventanas emergentes para el sitio. Cierra y vuelve a abrir el proyector. |
+| No se escuchan los sonidos | AudioContext suspendido | Haz clic en cualquier botón (por ejemplo, "Probar") para activar el audio. Los navegadores requieren interacción del usuario. |
+| El juego no guarda el estado | IndexedDB llena o corrupta | Abre Application → IndexedDB → elimina `DiloGameDB` y recarga. Se recreará automáticamente. |
+| Error "loop infinito" en la consola | Mensajes excesivos por segundo | Revisa que no haya `useEffect` sin dependencias o con dependencias que cambien siempre. Usa `debugger.html` para detectar la causa. |
+| El control remoto no responde | BroadcastChannel bloqueado | Asegúrate de que ambas ventanas estén en el mismo origen (mismo protocolo, puerto y dominio). Usa `localhost` o HTTPS. |
+| La música no cambia de fase | Fase incorrecta en `AudioEngine.setMusicPhase` | Verifica que el nombre de la fase sea uno de: `'start'`, `'initial'`, `'semifinal'`, `'final'`, `'tiebreaker'`. |
 
-## 7. Soporte y actualizaciones
-- El código está completamente contenido en un solo archivo HTML. Para actualizar, reemplazar el archivo.
-- Se recomienda mantener una copia de seguridad del archivo original antes de modificar.
-- Para reportar errores o solicitar mejoras: contactar al desarrollador.
+## 🔄 Actualización del sistema
+
+El sistema es un único archivo HTML. Para actualizar:
+
+1. Descarga la nueva versión de `index.html`.
+2. Reemplaza el archivo anterior.
+3. **Importante**: Los datos de IndexedDB persisten. Si hay cambios estructurales en la base de datos, se disparará `onupgradeneeded` automáticamente al abrir la nueva versión. No se perderán datos.
+4. Limpia la caché del Service Worker si notas comportamientos extraños: Application → Service Workers → Update / Unregister.
+
+## 📞 Soporte
+
+Para reportar errores o solicitar mejoras, abre un issue en el repositorio de GitHub:  
+https://github.com/Ernesto-Gregori/sistema-activate

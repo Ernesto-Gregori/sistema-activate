@@ -1,84 +1,95 @@
-# 📘 Guía de uso – Operador del concurso
+# Guía de uso para el operador – Dilo Como Es
 
-## 1. Acceso al sistema
-- Abre el archivo `DiloComoEs_ACTIVATE2026_v4.html` en **Chrome**, **Edge** o **Firefox** (recomendado).
-- No se necesita servidor web; funciona completamente offline después de la primera carga con internet.
+Esta guía está pensada para la persona que maneja el concurso en vivo.
 
-## 2. Pantalla de inicio
-- Configura los equipos (mínimo 2, máximo 8). Puedes cambiar sus nombres.
-- Si existe una partida guardada, aparecerá la opción **"Cargar última"**.
-- Haz clic en **"COMENZAR TORNEO"** para iniciar.
+## 🏁 Preparación antes del evento
 
-## 3. Interfaz principal del juego (tres columnas)
+### 1. Configurar equipos
 
-### Columna izquierda – Banco de preguntas
-- **Filtros**: por etapa (E1, E2, E3) y nivel (Nv1, Nv2).
-- **Banco**: lista de preguntas disponibles. Haz clic en una para seleccionarla como pregunta activa.
-- **Reiniciar usadas**: vuelve a mostrar preguntas ya utilizadas.
+- Abre `index.html`.
+- Ve a la pestaña **⚙️ Equipos**.
+- Escribe los nombres de los equipos (mínimo 2, máximo ilimitado).
+- Elige un avatar para cada uno (emojis).
+- Haz clic en **COMENZAR TORNEO**.
 
-### Columna central – Control de la pregunta y enfrentamiento
-- **Pregunta activa**: se muestra con su etiqueta (Etapa, Nivel).
-- **Botones del temporizador**:
-  - ▶ Iniciar / ⏸ Pausar / ↺ Reset
-  - ✓ Usada (marca la pregunta como utilizada)
-- **Modos de respuesta (solo Etapa 1)**:
-  - **👥 Todos responden**: cada equipo selecciona su opción.
-  - **🎯 Un equipo responde**: el operador elige qué equipo tiene el turno.
-- **Selección de opciones**: cada equipo (o el elegido) pulsa la letra A/B/C/D.
-- **Confirmar respuesta(s)**: evalúa las selecciones y asigna puntos.
-- **⏱ Tiempo agotado**: penaliza a quienes no respondieron.
-- **MatchBoard** (cuando hay enfrentamiento activo):
-  - Botones de puntuación rápida (+100, +200, +500, -50, -100, -200).
-  - Comodines: **50/50** (oculta dos opciones incorrectas), **Cap** (+5 segundos), **Cmb** (cambia pregunta por otra del mismo nivel/etapa).
-  - **PASO**: salta la pregunta sin penalización (solo una vez por enfrentamiento).
-- **Terminar enfrentamiento**: guarda el resultado y pasa al siguiente.
-- **Botones inferiores**:
-  - **⛶ Abrir proyector** (ventana independiente para público).
-  - **💾 Guardar** (guarda manualmente el estado actual).
-  - **🔄 Nueva** (reinicia todo el torneo).
-  - **🎵 / 🎶** (enciende o apaga la música de fondo).
-  - **📊 Exportar resultados** (genera un Excel con el historial).
-  - **🌙 Ocultar pregunta** (muestra una pantalla de transición en el proyector).
-  - **☀️ Mostrar pregunta** (restaura la pregunta activa en el proyector).
+### 2. Cargar preguntas
 
-### Columna derecha – Gestión del torneo
-- **Ronda actual** y número de equipos activos.
-- **⚡ Desempate – Palabra por Palabra** (sirve para definir empates).
-- **ENFRENTAMIENTOS**: lista de duelos generados. Haz clic en **"▶ Iniciar"** para comenzar un enfrentamiento.
-- **POSICIONES**: tabla de puntuaciones actuales.
-- **HISTORIAL**: registro de rondas y eliminaciones.
-- **⚡ Generar enfrentamientos** (una vez que la ronda está lista).
+- Ve a **📋 Preguntas**.
+- Puedes usar las preguntas de demostración, importar desde Excel/JSON, o crear manualmente cada pregunta.
+- **Tipos disponibles**:
+  - *Opción múltiple*: requiere 4 opciones y una respuesta (A, B, C o D).
+  - *Abierta*: respuesta libre, el operador decide si es correcta.
+  - *Recitación*: similar a abierta, pero con un versículo.
 
-## 4. Proyector (pantalla para el público)
-- Se abre en una ventana nueva.
-- Muestra la pregunta, el temporizador grande, las opciones y las selecciones de los equipos con sus colores y letras fijas (A, B, C, D…).
-- El operador puede ocultar temporalmente la pregunta (pantalla de transición) con el botón **🌙 Ocultar pregunta** y mostrarla de nuevo con **☀️ Mostrar pregunta**.
+### 3. Ajustar parámetros
 
-## 5. Pestaña "🎵 Sonidos" – Configuración de audio avanzada
-### Sonidos de eventos
-- **Acierto**, **Error**, **Tiempo agotado**, **Tick (cuenta regresiva)**, **Fanfarria (desempate)**, **Comodín**, **Inicio de cuenta regresiva**, **Fin de ronda**.
-- Para cada uno: botón **🔊 Probar**, **📁 Cargar archivo** (MP3, WAV, OGG), **🔄 Restaurar predefinido**.
+En **⚙️ Ajustes** puedes modificar:
 
-### Música por fases (5 pistas independientes)
-- **Música de inicio**: suena cuando se abre el sistema y en el proyector inactivo.
-- **Música ronda inicial / cuartos**: durante las fases iniciales del torneo.
-- **Música semifinal**: cuando se alcanza la semifinal.
-- **Música final**: durante la ronda final.
-- **Música desempate**: suena automáticamente al abrir un desempate.
-- Cada una puede cargarse con su propio archivo. Si no se carga, se usa la música sintética por defecto.
+- Tiempo, puntaje por acierto y por error para cada etapa.
+- Mensaje e imagen de la pantalla de espera.
 
-### Persistencia
-- Todos los sonidos y músicas personalizadas se guardan en **IndexedDB** y se restauran automáticamente al recargar la página.
+## 🎮 Durante el concurso
 
-## 6. Pestaña "📋 Preguntas" (administración)
-- Permite **crear, editar, eliminar, importar y exportar** preguntas.
-- Las preguntas se guardan automáticamente en IndexedDB (sin límite de 5 MB).
-- **⟳ Restablecer predeterminadas** vuelve a las preguntas de ejemplo.
-- **📊 Importar Excel** / **📊 Exportar a Excel** permite editar preguntas externamente.
+### Pantalla principal (operador)
 
-## 7. Consejos para el evento
-- Antes del evento, abre el sistema una vez con conexión a internet para que el Service Worker cachee los recursos (React, fuentes, etc.). Luego funcionará sin conexión.
-- Realiza una prueba con un par de preguntas para verificar el sonido y el proyector.
-- Carga tus propias canciones para cada fase en la pestaña de sonidos. El sistema las recordará incluso después de cerrar el navegador.
-- Usa el botón de música (🎵/🎶) para pausar o reanudar la música en cualquier momento.
-- Utiliza **🌙 Ocultar pregunta** entre preguntas para que el público no vea la anterior mientras configuras la siguiente.
+La interfaz se divide en tres columnas:
+
+1. **Izquierda** – Banco de preguntas (filtrable por etapa/nivel). Haz clic en una pregunta para cargarla.
+2. **Centro** – Control del temporizador, área de respuesta y registro de eventos.
+3. **Derecha** – Gestión del torneo (enfrentamientos, posiciones, historial).
+
+### Flujo típico de una ronda
+
+1. **Generar enfrentamientos** – Haz clic en **⚡ Generar enfrentamientos** (solo una vez por ronda).
+2. **Iniciar un enfrentamiento** – Presiona **▶ Iniciar** en el primer par de equipos.
+3. **Seleccionar una pregunta** – Desde el banco izquierdo.
+4. **Iniciar el temporizador** – Botón **▶ Iniciar** (arriba del temporizador).
+5. **Los equipos responden** (según el modo):
+   - **Modo "Todos responden"** (Etapa 1): cada equipo elige una opción (botones A/B/C/D).
+   - **Modo "Un equipo responde"**: selecciona qué equipo tiene el turno (botones con nombres) y luego su opción.
+6. **Confirmar respuestas** – Botón **✓ Confirmar respuesta(s)**. El sistema asigna puntaje automáticamente según la configuración.
+   - Si ningún equipo seleccionó, presiona **⏱ Tiempo agotado**.
+   - Para preguntas abiertas/recitación, primero muestra la respuesta con **Revelar respuesta** y luego asigna puntaje manualmente (+ o -).
+7. **Finalizar enfrentamiento** – Botón **Terminar enfrentamiento →**. El resultado se registra y pasa al siguiente.
+8. **Cuando se completa la ronda**, aparece el botón **✕ Eliminar menor**. Confirma la eliminación del equipo con menos puntos.
+9. **Automáticamente** se crea la siguiente ronda (Cuartos, Semifinal, Final). Aparecerá la pantalla de espera (puedes cerrarla con **CONTINUAR TORNEO**).
+
+### Uso de comodines
+
+Durante un enfrentamiento activo, en la columna derecha o en el **MatchBoard** central (botones):
+
+- **50/50**: Oculta dos opciones incorrectas en preguntas de opción múltiple.
+- **Ayuda Capitán**: Añade 5 segundos al temporizador.
+- **Cambio**: Sustituye la pregunta actual por otra del mismo nivel y etapa.
+
+### Gestión del proyector
+
+- Abre el proyector con el botón **⛶ Abrir proyector**. Aparecerá una ventana independiente.
+- El proyector muestra exactamente lo mismo que ves en la pantalla principal (pregunta, temporizador, opciones, selecciones de equipos).
+- Puedes ocultar temporalmente la pregunta con **🌙 Ocultar pregunta** (muestra "PREPÁRATE") y restaurarla con **☀️ Mostrar pregunta**.
+- El proyector también refleja la pantalla de espera y el desempate.
+
+### Control remoto (desde un móvil)
+
+1. En el móvil, abre la misma URL que usas en la computadora pero añadiendo `?remote=1` al final.  
+   Ejemplo: `http://192.168.1.10:8080/index.html?remote=1`
+2. Verás un panel con botones táctiles (Iniciar, Pausar, Correcto, etc.).  
+   También puedes usar atajos de teclado (1–0) si conectas un teclado externo.
+
+### Desempate (cuando hay empate en una ronda)
+
+- En la sección derecha, haz clic en **⚡ Desempate – Palabra por Palabra**.
+- Escribe el versículo o palabra a recitar.
+- Prepara y luego **COMENZAR**. El temporizador de 30 segundos corre.
+- Cuando un equipo recite correctamente, haz clic en su botón. El equipo gana 500 puntos y cierra el desempate.
+
+## 📊 Exportar resultados
+
+Al final del torneo (o en cualquier momento), haz clic en **📊 Exportar resultados**. Se descargará un archivo Excel con todas las estadísticas.
+
+## ⚠️ Notas importantes
+
+- **Salva frecuentemente** con el botón **💾 Guardar** (el juego también guarda automáticamente cada 30 segundos).
+- Si cierras la ventana sin querer, al volver a abrir el juego te preguntará si quieres restaurar la partida.
+- Para reiniciar completamente: en la pantalla principal, botón **🔄 Nueva** (te pedirá confirmación).
+- El proyector debe estar en la misma ventana de navegador (mismo origen) para que la sincronización funcione. Si se desconecta, ciérralo y ábrelo de nuevo.
