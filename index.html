@@ -125,9 +125,6 @@ const C = {
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  SISTEMA DE TIPOS DE PREGUNTA EXTENSIBLE
- *  Para agregar un tipo nuevo el próximo año:
- *    1. Agrega una entrada en QUESTION_TYPES con su definición
- *    2. El editor, proyector y evaluación lo detectan automáticamente
  * ═══════════════════════════════════════════════════════════════════════════ */
 const QUESTION_TYPES = {
   multiple_choice: {
@@ -138,14 +135,12 @@ const QUESTION_TYPES = {
     defaultTime: 10,
     defaultCorrect: 100,
     defaultIncorrect: -50,
-    hasOptions: true,          // muestra A/B/C/D en editor y proyector
-    hasAnswer: true,           // tiene respuesta correcta
-    answerIsLetter: true,      // respuesta es A/B/C/D
+    hasOptions: true,
+    hasAnswer: true,
+    answerIsLetter: true,
     timerVisible: true,
     description: "4 opciones, respuesta única. Se evalúa automáticamente.",
-    // Evalúa si la selección del equipo es correcta
     evaluate: (q, teamAnswer) => teamAnswer === q.answer,
-    // Qué mostrar en el proyector cuando se revela
     revealMode: "highlight_option",
   },
   open: {
@@ -161,7 +156,7 @@ const QUESTION_TYPES = {
     answerIsLetter: false,
     timerVisible: true,
     description: "Respuesta libre. El operador decide si es correcta.",
-    evaluate: () => null,      // null = evaluación manual
+    evaluate: () => null,
     revealMode: "show_text",
   },
   recitation: {
@@ -180,7 +175,6 @@ const QUESTION_TYPES = {
     evaluate: () => null,
     revealMode: "show_text",
   },
-  //── TIPOS FUTUROS — solo descomentar y completar cuando se necesiten ──────
   image_choice: {
     id: "image_choice",
     label: "Imagen + Opciones",
@@ -192,7 +186,7 @@ const QUESTION_TYPES = {
     hasOptions: true,
     hasAnswer: true,
     answerIsLetter: true,
-    hasMedia: true,          // campo mediaUrl en la pregunta
+    hasMedia: true,
     timerVisible: true,
     description: "Muestra una imagen y 4 opciones.",
     evaluate: (q, teamAnswer) => teamAnswer === q.answer,
@@ -209,7 +203,7 @@ const QUESTION_TYPES = {
     hasOptions: true,
     hasAnswer: true,
     answerIsLetter: true,
-    twoOptionsOnly: true,    // solo A y B
+    twoOptionsOnly: true,
     timerVisible: true,
     description: "Solo dos opciones: Verdadero o Falso.",
     evaluate: (q, teamAnswer) => teamAnswer === q.answer,
@@ -235,24 +229,20 @@ const QUESTION_TYPES = {
 
 // Mapeo de compatibilidad: stage numérico → type semántico
 const STAGE_TO_TYPE = { 1: "multiple_choice", 2: "open", 3: "recitation" };
-const TYPE_TO_STAGE = { multiple_choice: 1, open: 2, recitation: 3 };
+const TYPE_TO_STAGE = { multiple_choice: 1, open: 2, recitation: 3, image_choice: 1, true_false: 1, ordering: 3 };
 
-// Migra preguntas antiguas (con stage:1/2/3) al nuevo formato (con type)
-// y también asegura que preguntas nuevas tengan stage para compatibilidad
 const migrateQuestion = (q) => {
   if (q.type && !q.stage) return { ...q, stage: TYPE_TO_STAGE[q.type] || 1 };
   if (q.stage && !q.type) return { ...q, type: STAGE_TO_TYPE[q.stage] || "multiple_choice" };
   return q;
 };
 
-// Obtiene la definición del tipo de una pregunta (con fallback seguro)
 const getQType = (q) => {
   if (!q) return QUESTION_TYPES.multiple_choice;
   const typeId = q.type || STAGE_TO_TYPE[q.stage] || "multiple_choice";
   return QUESTION_TYPES[typeId] || QUESTION_TYPES.multiple_choice;
 };
 
-// Config de tiempos/puntajes por tipo (reemplaza DEFAULT_STAGE_CONFIG)
 const DEFAULT_STAGE_CONFIG = {
   1: { label: "Etapa 1 – Opción Múltiple", time: 10, correct: 100, incorrect: -50, color: C.secondary },
   2: { label: "Etapa 2 – Preguntas Abiertas", time: 15, correct: 200, incorrect: -100, color: C.tertiary },
@@ -437,158 +427,18 @@ const TieBreaker = memo(({teams, teamIndexes, onClose, onAwardPoints, addLog, on
   const [running, setRunning] = useState(false);
   const [tkey, setTkey] = useState(0);
   const [winner, setWinner] = useState(null);
-
-  // Memo estable para evitar que activeTeams sea un array nuevo en cada render
   const activeTeams = useMemo(() => teamIndexes.map(i=>teams[i]).filter(Boolean), [teams, teamIndexes]);
-
   useEffect(() => { AudioEngine.setMusicPhase('tiebreaker'); }, []);
-
-  // notifyState usa primitivos / referencias estables
-  useEffect(() => {
-    if (onStateChange) onStateChange({ phase, word, running, tkey, winner, teams: activeTeams, teamIndexes });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, word, running, tkey, winner]);
-
-  // Paso 1: validar texto y pasar a fase "armed" (listo para comenzar)
-  const prepare = () => {
-    if (!word.trim()) return;
-    setPhase("armed");
-    addLog(`Desempate preparado: "${word}"`);
-  };
-
-  // Paso 2: COMENZAR — arrancar timer (separado del cambio de phase para que React lo procese en render distinto)
-  const begin = () => {
-    setTkey(k => k + 1);
-    setRunning(true);
-    setPhase("active");
-    AudioEngine.joker();
-    addLog("Desempate iniciado — timer corriendo");
-  };
-
-  const award = (ti) => {
-    setWinner(ti);
-    setPhase("done");
-    setRunning(false);
-    onAwardPoints(ti, 500);
-    AudioEngine.fanfare();
-    addLog(`🏆 Desempate: ${activeTeams[ti]?.name} gana +500 pts`);
-  };
-
-  return (
-    <div style={{ position:"fixed", inset:0, zIndex:9500, background: C.surfaceContainerLowest, backdropFilter:"blur(20px)", display:"flex", alignItems:"center", justifyContent:"center" }}>
-      <div style={{ background: C.surfaceContainer, border: `2px solid ${C.tertiary}`, borderRadius: 24, padding: 28, maxWidth: 520, width:"90%", boxShadow: `0 0 60px ${C.tertiary}30`, backdropFilter:"blur(8px)" }}>
-        <div style={{textAlign:"center", marginBottom:20}}>
-          <div style={{fontSize:11, color:C.tertiary, letterSpacing:3, fontWeight:700}}>⚡ DESEMPATE</div>
-          <div style={{fontSize:26, fontWeight:900, fontFamily:"'Hanken Grotesk', sans-serif"}}>Palabra por Palabra</div>
-          <div style={{fontSize:12, color:C.outline, marginTop:4}}>El primer equipo que recite correctamente gana 500 pts</div>
-        </div>
-
-        {/* FASE: setup — ingresar texto */}
-        {phase === "setup" && (
-          <>
-            <div style={{marginBottom:16}}>
-              <div style={{fontSize:10, color:C.outline, letterSpacing:1, marginBottom:6}}>VERSÍCULO / TEXTO A RECITAR</div>
-              <textarea value={word} onChange={e=>setWord(e.target.value)} rows={3}
-                style={{ width:"100%", background: C.surfaceContainerHigh, border:`1px solid ${C.outlineVariant}`, borderRadius:12, color:C.onSurface, fontSize:13, padding:"10px 12px", fontFamily:"'Inter', sans-serif", resize:"vertical" }}
-                placeholder="Escribe el versículo o texto…" aria-label="Texto a recitar"/>
-            </div>
-            <div style={{marginBottom:18}}>
-              <div style={{fontSize:10, color:C.outline, letterSpacing:1, marginBottom:8}}>EQUIPOS EN DESEMPATE</div>
-              {activeTeams.map((t,i)=>
-                <div key={i} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 10px", background: C.surfaceContainerLow, borderRadius:12, marginBottom:5, borderLeft: `4px solid ${TC[teamIndexes[i]%TC.length]}` }}>
-                  <span style={{fontSize:12}}>{t.avatar||"🏅"}</span>
-                  <span style={{fontSize:12, color:C.onSurface, fontWeight:600}}>{t.name}</span>
-                  <span style={{marginLeft:"auto", fontFamily:"'JetBrains Mono', monospace", fontSize:12, color:C.outline}}>{t.score.toLocaleString()} pts</span>
-                </div>
-              )}
-            </div>
-            <div style={{display:"flex", gap:10}}>
-              <button onClick={prepare} disabled={!word.trim()}
-                style={{ flex:1, background: word.trim() ? C.tertiary : C.outlineVariant, color: word.trim() ? C.onTertiary : C.outline, border:"none", borderRadius:40, padding:"12px", fontSize:13, fontWeight:800, cursor: word.trim() ? "pointer":"default" }}
-                aria-label="Preparar desempate">✓ Preparar</button>
-              <button onClick={onClose}
-                style={{ background:"transparent", color:C.outline, border:`1px solid ${C.outlineVariant}`, borderRadius:40, padding:"12px 18px", fontSize:12, cursor:"pointer" }}
-                aria-label="Cancelar desempate">Cancelar</button>
-            </div>
-          </>
-        )}
-
-        {/* FASE: armed — texto listo, esperando comenzar */}
-        {phase === "armed" && (
-          <>
-            <div style={{ background: C.surfaceContainerHigh, borderRadius: 16, padding:"16px 20px", marginBottom:18, textAlign:"center", border:`1px solid ${C.tertiary}40` }}>
-              <div style={{fontSize:11, color:C.tertiary, letterSpacing:2, marginBottom:6}}>TEXTO PREPARADO:</div>
-              <div style={{fontSize:15, fontWeight:600, fontFamily:"'Inter', sans-serif", lineHeight:1.5}}>{word}</div>
-            </div>
-            <div style={{ background:`${C.tertiary}15`, border:`2px dashed ${C.tertiary}`, borderRadius:16, padding:"16px", marginBottom:18, textAlign:"center" }}>
-              <div style={{fontSize:12, color:C.tertiary, marginBottom:4}}>⏱ Timer listo — 30 segundos</div>
-              <div style={{fontSize:11, color:C.outline}}>Cuando presiones COMENZAR, el temporizador arrancará inmediatamente</div>
-            </div>
-            <div style={{display:"flex", gap:10}}>
-              <button onClick={begin}
-                style={{ flex:1, background:`linear-gradient(135deg, ${C.tertiary}, ${C.primary})`, color: C.onPrimary, border:"none", borderRadius:40, padding:"14px", fontSize:15, fontWeight:900, cursor:"pointer", boxShadow:`0 0 20px ${C.tertiary}60`, letterSpacing:1 }}
-                aria-label="Comenzar desempate">▶ COMENZAR</button>
-              <button onClick={()=>setPhase("setup")}
-                style={{ background:"transparent", color:C.outline, border:`1px solid ${C.outlineVariant}`, borderRadius:40, padding:"12px 18px", fontSize:12, cursor:"pointer" }}
-                aria-label="Editar texto">✏ Editar</button>
-            </div>
-          </>
-        )}
-
-        {/* FASE: active — timer corriendo */}
-        {phase === "active" && (
-          <>
-            <div style={{ background: C.surfaceContainerHigh, borderRadius: 16, padding:"14px 20px", marginBottom:16, textAlign:"center" }}>
-              <div style={{fontSize:11, color:C.tertiary, letterSpacing:2}}>RECITAR:</div>
-              <div style={{fontSize:15, fontWeight:600, fontFamily:"'Inter', sans-serif", marginTop:4, lineHeight:1.5}}>{word}</div>
-            </div>
-            <div style={{display:"flex", justifyContent:"center", marginBottom:8}}>
-              <Timer seconds={30} running={running} onEnd={()=>{setRunning(false);setPhase("done");}} tkey={tkey} size="lg"/>
-            </div>
-            <div style={{display:"flex", justifyContent:"center", gap:8, marginBottom:16}}>
-              <button onClick={()=>setRunning(r=>!r)}
-                style={{ background: running ? `${C.error}20` : `${C.primary}20`, border:`1px solid ${running ? C.error : C.primary}`, color: running ? C.error : C.primary, borderRadius:40, padding:"6px 16px", fontSize:11, fontWeight:700, cursor:"pointer" }}>
-                {running ? "⏸ Pausar" : "▶ Reanudar"}
-              </button>
-            </div>
-            <div style={{fontSize:10, color:C.outline, textAlign:"center", marginBottom:8, letterSpacing:1}}>¿QUIÉN LO DIJO CORRECTAMENTE?</div>
-            <div style={{display:"flex", gap:8, marginBottom:10, flexWrap:"wrap"}}>
-              {activeTeams.map((t,i)=>
-                <button key={i} onClick={()=>award(i)}
-                  style={{ flex:1, background: TC[teamIndexes[i]%TC.length] + '20', border:`2px solid ${TC[teamIndexes[i]%TC.length]}`, borderRadius:40, padding:"10px", fontSize:12, fontWeight:700, cursor:"pointer" }}
-                  aria-label={`${t.name} responde correctamente`}>✓ {t.name}</button>
-              )}
-            </div>
-            <button onClick={()=>{setPhase("done");setRunning(false);addLog("Desempate sin ganador");}}
-              style={{ width:"100%", background:"transparent", color:C.outline, border:`1px solid ${C.outlineVariant}`, borderRadius:40, padding:"8px", fontSize:11, cursor:"pointer" }}
-              aria-label="Sin ganador">Sin ganador / Empate</button>
-          </>
-        )}
-
-        {/* FASE: done — resultado */}
-        {phase === "done" && (
-          <div style={{textAlign:"center"}}>
-            {winner !== null ? (
-              <>
-                <div style={{fontSize:56, marginBottom:8}}>🏆</div>
-                <div style={{fontSize:28, fontWeight:900, color:C.tertiary, marginBottom:4}}>{activeTeams[winner]?.name}</div>
-                <div style={{fontSize:14, color:C.outline, marginBottom:6}}>ganó el desempate</div>
-                <div style={{fontSize:22, fontFamily:"'JetBrains Mono', monospace", color:C.primary, marginBottom:20}}>+500 pts</div>
-              </>
-            ) : (
-              <>
-                <div style={{fontSize:56, marginBottom:8}}>🤝</div>
-                <div style={{fontSize:18, color:C.outline, marginBottom:20}}>Sin ganador — empate</div>
-              </>
-            )}
-            <button onClick={onClose}
-              style={{ background:C.primary, color:C.onPrimary, border:"none", borderRadius:40, padding:"12px 32px", fontWeight:800, cursor:"pointer", fontSize:14 }}
-              aria-label="Cerrar desempate">✓ Cerrar</button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  useEffect(() => { if (onStateChange) onStateChange({ phase, word, running, tkey, winner, teams: activeTeams, teamIndexes }); }, [phase, word, running, tkey, winner]);
+  const prepare = () => { if (!word.trim()) return; setPhase("armed"); addLog(`Desempate preparado: "${word}"`); };
+  const begin = () => { setTkey(k => k + 1); setRunning(true); setPhase("active"); AudioEngine.joker(); addLog("Desempate iniciado — timer corriendo"); };
+  const award = (ti) => { setWinner(ti); setPhase("done"); setRunning(false); onAwardPoints(ti, 500); AudioEngine.fanfare(); addLog(`🏆 Desempate: ${activeTeams[ti]?.name} gana +500 pts`); };
+  return ( <div style={{ position:"fixed", inset:0, zIndex:9500, background: C.surfaceContainerLowest, backdropFilter:"blur(20px)", display:"flex", alignItems:"center", justifyContent:"center" }}> <div style={{ background: C.surfaceContainer, border: `2px solid ${C.tertiary}`, borderRadius: 24, padding: 28, maxWidth: 520, width:"90%", boxShadow: `0 0 60px ${C.tertiary}30`, backdropFilter:"blur(8px)" }}> <div style={{textAlign:"center", marginBottom:20}}> <div style={{fontSize:11, color:C.tertiary, letterSpacing:3, fontWeight:700}}>⚡ DESEMPATE</div> <div style={{fontSize:26, fontWeight:900, fontFamily:"'Hanken Grotesk', sans-serif"}}>Palabra por Palabra</div> <div style={{fontSize:12, color:C.outline, marginTop:4}}>El primer equipo que recite correctamente gana 500 pts</div> </div>
+    {phase === "setup" && ( <> <div style={{marginBottom:16}}> <div style={{fontSize:10, color:C.outline, letterSpacing:1, marginBottom:6}}>VERSÍCULO / TEXTO A RECITAR</div> <textarea value={word} onChange={e=>setWord(e.target.value)} rows={3} style={{ width:"100%", background: C.surfaceContainerHigh, border:`1px solid ${C.outlineVariant}`, borderRadius:12, color:C.onSurface, fontSize:13, padding:"10px 12px", fontFamily:"'Inter', sans-serif", resize:"vertical" }} placeholder="Escribe el versículo o texto…" aria-label="Texto a recitar"/> </div> <div style={{marginBottom:18}}> <div style={{fontSize:10, color:C.outline, letterSpacing:1, marginBottom:8}}>EQUIPOS EN DESEMPATE</div> {activeTeams.map((t,i)=> <div key={i} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 10px", background: C.surfaceContainerLow, borderRadius:12, marginBottom:5, borderLeft: `4px solid ${TC[teamIndexes[i]%TC.length]}` }}> <span style={{fontSize:12}}>{t.avatar||"🏅"}</span> <span style={{fontSize:12, color:C.onSurface, fontWeight:600}}>{t.name}</span> <span style={{marginLeft:"auto", fontFamily:"'JetBrains Mono', monospace", fontSize:12, color:C.outline}}>{t.score.toLocaleString()} pts</span> </div> )} </div> <div style={{display:"flex", gap:10}}> <button onClick={prepare} disabled={!word.trim()} style={{ flex:1, background: word.trim() ? C.tertiary : C.outlineVariant, color: word.trim() ? C.onTertiary : C.outline, border:"none", borderRadius:40, padding:"12px", fontSize:13, fontWeight:800, cursor: word.trim() ? "pointer":"default" }}>✓ Preparar</button> <button onClick={onClose} style={{ background:"transparent", color:C.outline, border:`1px solid ${C.outlineVariant}`, borderRadius:40, padding:"12px 18px", fontSize:12, cursor:"pointer" }}>Cancelar</button> </div> </> )}
+    {phase === "armed" && ( <> <div style={{ background: C.surfaceContainerHigh, borderRadius: 16, padding:"16px 20px", marginBottom:18, textAlign:"center", border:`1px solid ${C.tertiary}40` }}> <div style={{fontSize:11, color:C.tertiary, letterSpacing:2, marginBottom:6}}>TEXTO PREPARADO:</div> <div style={{fontSize:15, fontWeight:600, fontFamily:"'Inter', sans-serif", lineHeight:1.5}}>{word}</div> </div> <div style={{ background:`${C.tertiary}15`, border:`2px dashed ${C.tertiary}`, borderRadius:16, padding:"16px", marginBottom:18, textAlign:"center" }}> <div style={{fontSize:12, color:C.tertiary, marginBottom:4}}>⏱ Timer listo — 30 segundos</div> <div style={{fontSize:11, color:C.outline}}>Cuando presiones COMENZAR, el temporizador arrancará inmediatamente</div> </div> <div style={{display:"flex", gap:10}}> <button onClick={begin} style={{ flex:1, background:`linear-gradient(135deg, ${C.tertiary}, ${C.primary})`, color: C.onPrimary, border:"none", borderRadius:40, padding:"14px", fontSize:15, fontWeight:900, cursor:"pointer", boxShadow:`0 0 20px ${C.tertiary}60`, letterSpacing:1 }}>▶ COMENZAR</button> <button onClick={()=>setPhase("setup")} style={{ background:"transparent", color:C.outline, border:`1px solid ${C.outlineVariant}`, borderRadius:40, padding:"12px 18px", fontSize:12, cursor:"pointer" }}>✏ Editar</button> </div> </> )}
+    {phase === "active" && ( <> <div style={{ background: C.surfaceContainerHigh, borderRadius: 16, padding:"14px 20px", marginBottom:16, textAlign:"center" }}> <div style={{fontSize:11, color:C.tertiary, letterSpacing:2}}>RECITAR:</div> <div style={{fontSize:15, fontWeight:600, fontFamily:"'Inter', sans-serif", marginTop:4, lineHeight:1.5}}>{word}</div> </div> <div style={{display:"flex", justifyContent:"center", marginBottom:8}}> <Timer seconds={30} running={running} onEnd={()=>{setRunning(false);setPhase("done");}} tkey={tkey} size="lg"/> </div> <div style={{display:"flex", justifyContent:"center", gap:8, marginBottom:16}}> <button onClick={()=>setRunning(r=>!r)} style={{ background: running ? `${C.error}20` : `${C.primary}20`, border:`1px solid ${running ? C.error : C.primary}`, color: running ? C.error : C.primary, borderRadius:40, padding:"6px 16px", fontSize:11, fontWeight:700, cursor:"pointer" }}> {running ? "⏸ Pausar" : "▶ Reanudar"} </button> </div> <div style={{fontSize:10, color:C.outline, textAlign:"center", marginBottom:8, letterSpacing:1}}>¿QUIÉN LO DIJO CORRECTAMENTE?</div> <div style={{display:"flex", gap:8, marginBottom:10, flexWrap:"wrap"}}> {activeTeams.map((t,i)=> <button key={i} onClick={()=>award(i)} style={{ flex:1, background: TC[teamIndexes[i]%TC.length] + '20', border:`2px solid ${TC[teamIndexes[i]%TC.length]}`, borderRadius:40, padding:"10px", fontSize:12, fontWeight:700, cursor:"pointer" }}>✓ {t.name}</button> )} </div> <button onClick={()=>{setPhase("done");setRunning(false);addLog("Desempate sin ganador");}} style={{ width:"100%", background:"transparent", color:C.outline, border:`1px solid ${C.outlineVariant}`, borderRadius:40, padding:"8px", fontSize:11, cursor:"pointer" }}>Sin ganador / Empate</button> </> )}
+    {phase === "done" && ( <div style={{textAlign:"center"}}> {winner !== null ? ( <> <div style={{fontSize:56, marginBottom:8}}>🏆</div> <div style={{fontSize:28, fontWeight:900, color:C.tertiary, marginBottom:4}}>{activeTeams[winner]?.name}</div> <div style={{fontSize:14, color:C.outline, marginBottom:6}}>ganó el desempate</div> <div style={{fontSize:22, fontFamily:"'JetBrains Mono', monospace", color:C.primary, marginBottom:20}}>+500 pts</div> </> ) : ( <> <div style={{fontSize:56, marginBottom:8}}>🤝</div> <div style={{fontSize:18, color:C.outline, marginBottom:20}}>Sin ganador — empate</div> </> )} <button onClick={onClose} style={{ background:C.primary, color:C.onPrimary, border:"none", borderRadius:40, padding:"12px 32px", fontWeight:800, cursor:"pointer", fontSize:14 }}>✓ Cerrar</button> </div> )}
+    </div> </div> );
 });
 
 const MatchBoard = memo(({activeTeams, teamIndexes, setTeams, addLog, onPaso, onScoreAnim, teamCardRefs, onUseComodin, responseMode, activeResponderTeamIdx}) => {
@@ -617,21 +467,8 @@ const TournamentMgr = memo(({teams, onStartMatch, currentMatchIdx, roundMatches,
     else phase = 'initial';
     AudioEngine.setMusicPhase(phase);
   }, [roundName]);
-  const handleEliminateClick = () => {
-    const act = teams.filter(t=>!t.eliminated);
-    if (act.length < 2) return;
-    const low = act.reduce((a,b)=>a.score<b.score?a:b);
-    setLowestTeam(low);
-    setShowConfirmModal(true);
-  };
-  const confirmElimination = () => {
-    if (lowestTeam) { 
-      onEliminateLowest(lowestTeam); 
-      AudioEngine.roundEnd();
-    }
-    setShowConfirmModal(false); 
-    setLowestTeam(null);
-  };
+  const handleEliminateClick = () => { const act = teams.filter(t=>!t.eliminated); if (act.length < 2) return; const low = act.reduce((a,b)=>a.score<b.score?a:b); setLowestTeam(low); setShowConfirmModal(true); };
+  const confirmElimination = () => { if (lowestTeam) { onEliminateLowest(lowestTeam); AudioEngine.roundEnd(); } setShowConfirmModal(false); setLowestTeam(null); };
   useEffect(() => { if (roundComplete && active.length > 1) AudioEngine.roundEnd(); }, [roundComplete]);
   return ( <><div style={{ display:"flex", flexDirection:"column", gap:12 }}> <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: "12px 16px", backdropFilter: "blur(4px)" }}> <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}> <div> <div style={{ fontSize:12, color:C.secondary, fontWeight:700, letterSpacing:1 }}>{roundName}</div> <div style={{ fontSize:11, color:C.outline, marginTop:2 }}>{active.length} activos</div> </div> <div style={{display:"flex", gap:6}}> {roundComplete && active.length>1 && <button onClick={handleEliminateClick} style={{ background: `${C.error}20`, color: C.error, border: `1px solid ${C.error}`, borderRadius:40, padding:"4px 12px", fontSize:10, fontWeight:700, cursor:"pointer" }} aria-label="Eliminar equipo con menor puntaje">✕ Eliminar menor</button>} {roundComplete && <button onClick={onShowWait} style={{ background: `${C.secondary}20`, color: C.secondary, border: `1px solid ${C.secondary}`, borderRadius:40, padding:"4px 12px", fontSize:10, fontWeight:700, cursor:"pointer" }} aria-label="Mostrar pantalla de espera">⏸ Espera</button>} </div> </div> <button onClick={onTieBreaker} style={{ width:"100%", background: `${C.tertiary}20`, color: C.tertiary, border: `1px solid ${C.tertiary}`, borderRadius:40, padding:"6px", fontSize:10, fontWeight:700, cursor:"pointer" }} aria-label="Iniciar desempate">⚡ Desempate – Palabra por Palabra</button> </div> <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: 12, overflowX:"auto" }}> <div style={{ fontSize:10, color:C.outline, letterSpacing:1, marginBottom:8 }}>ENFRENTAMIENTOS</div> {roundMatches.length===0 && <div style={{ fontSize:11, color:C.outline, textAlign:"center", padding:12 }}>Sin enfrentamientos</div>} {roundMatches.map((match,i)=>{ const isCur=i===currentMatchIdx, isDone=i<currentMatchIdx; return( <div key={i} style={{ background: isCur ? `${C.primary}20` : isDone ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.04)", border: `1px solid ${isCur ? C.primary : C.outlineVariant}`, borderRadius: 12, padding:"6px 10px", marginBottom:6, display:"flex", alignItems:"center", gap:8, whiteSpace:"nowrap" }}> <div style={{ width:20, height:20, borderRadius:"50%", background: isCur ? C.primary : C.outlineVariant, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:700, color: isCur ? C.onPrimary : C.onSurface }}>{i+1}</div> <div style={{ flex:1, fontSize:11, overflowX:"auto", whiteSpace:"normal" }}> {match.includes("__BYE__") ? <><span style={{color:C.secondary}}>{match[0]}</span><span style={{color:C.outline, marginLeft:5, fontSize:9}}>— PASE</span></> : match.join(" vs ")} </div> {isDone && <span style={{fontSize:9, color:C.primary}}>✓</span>} {isCur && !isDone && ( <button onClick={()=>onStartMatch(i)} style={{ background: match.includes("__BYE__") ? C.secondary : C.primary, color: match.includes("__BYE__") ? C.onSecondary : C.onPrimary, border:"none", borderRadius:40, padding:"2px 12px", fontSize:10, fontWeight:700, cursor:"pointer" }} aria-label="Iniciar enfrentamiento">{match.includes("__BYE__") ? "⏭ Pase" : "▶ Iniciar"}</button> )} </div> ); })} </div> <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: 12 }}> <div style={{ fontSize:10, color:C.outline, letterSpacing:1, marginBottom:8 }}>POSICIONES</div> {[...teams].sort((a,b)=>(a.eliminated===b.eliminated ? b.score-a.score : a.eliminated ? 1 : -1)).map((t,i)=>{ const idx=teams.findIndex(x=>x.name===t.name); const col = TC[idx%TC.length]; return( <div key={t.name} style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 6px", borderBottom: `1px solid ${C.outlineVariant}`, opacity: t.eliminated ? 0.5 : 1 }}> <div style={{ width:22, height:22, borderRadius:"50%", background: t.eliminated ? C.outlineVariant : `${col}30`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700, color: t.eliminated ? C.outline : col }}>{i+1}</div> <div style={{ flex:1, fontSize:12 }}>{t.name}</div> <div style={{ fontSize:13, fontWeight:700, fontFamily:"'JetBrains Mono', monospace", color: col }}>{t.score.toLocaleString()}</div> </div> ); })} </div> <RoundHistory history={history}/> </div> {showConfirmModal && ( <div className="modal-overlay"><div className="modal-card"><h3 style={{ marginBottom: 16, color: C.error }}>⚠️ Confirmar eliminación</h3><p style={{ marginBottom: 24 }}>¿Eliminar a <strong>{lowestTeam?.name}</strong> con {lowestTeam?.score} pts?</p><div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}><button onClick={confirmElimination} style={{ background: C.error, color: C.onError, border: 'none', borderRadius: 40, padding: '8px 24px', cursor: 'pointer' }}>Sí, eliminar</button><button onClick={() => setShowConfirmModal(false)} style={{ background: 'transparent', border: `1px solid ${C.outlineVariant}`, color: C.outline, borderRadius: 40, padding: '8px 24px', cursor: 'pointer' }}>Cancelar</button></div></div></div> )}</> );
 });
@@ -645,7 +482,7 @@ const SoundManager = memo(() => {
   const playTest = (type) => { AudioEngine.playTestSound(type); };
   const soundItems = [
     { id: 'correct', label: '✅ Acierto', icon: '✓' },{ id: 'wrong', label: '❌ Error', icon: '✗' },{ id: 'timeout', label: '⏰ Tiempo agotado', icon: '⏱️' },{ id: 'tick', label: '⏱️ Tick (cuenta regresiva)', icon: '🔊' },{ id: 'fanfare', label: '🎉 Fanfarria (desempate)', icon: '🎺' },{ id: 'joker', label: '🃏 Comodín', icon: '✨' },{ id: 'countdown', label: '🔔 Inicio de cuenta regresiva', icon: '⏲️' },{ id: 'roundEnd', label: '🔚 Fin de ronda', icon: '🏁' },{ id: 'music_start', label: '🎵 Música de inicio', icon: '🏁' },{ id: 'music_initial', label: '🎵 Música ronda inicial / cuartos', icon: '🔊' },{ id: 'music_semifinal', label: '🎵 Música semifinal', icon: '⚡' },{ id: 'music_final', label: '🎵 Música final', icon: '🏆' },{ id: 'music_tiebreaker', label: '🎵 Música desempate', icon: '⚔️' } ];
-  return ( <div style={{ padding: '20px', maxWidth: '800px', margin: '0 auto' }}><h2 style={{ marginBottom: '20px', color: C.primary }}>🎵 Configuración de sonidos y música por fases</h2><p style={{ marginBottom: '20px', color: C.outline }}>Puedes cargar tus propios archivos de audio (MP3, WAV, OGG) para cada evento y cada fase musical. Los sonidos se guardan automáticamente.</p><div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>{soundItems.map(item => ( <div key={item.id} style={{ background: C.surfaceContainer, borderRadius: 16, padding: '16px', border: `1px solid ${C.outlineVariant}` }}><div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}><span style={{ fontSize: '24px' }}>{item.icon}</span><span style={{ fontWeight: 'bold' }}>{item.label}</span>{customStatus[item.id] && <span style={{ fontSize: '12px', background: C.primary, color: C.onPrimary, padding: '2px 8px', borderRadius: '20px' }}>📀 Personalizado</span>}</div><div style={{ display: 'flex', gap: '8px' }}><button onClick={() => playTest(item.id)} style={{ background: `${C.secondary}20`, border: `1px solid ${C.secondary}`, color: C.secondary, borderRadius: 40, padding: '6px 16px', cursor: 'pointer' }} aria-label={`Probar ${item.label}`}>🔊 Probar</button><label style={{ background: `${C.primary}20`, border: `1px solid ${C.primary}`, color: C.primary, borderRadius: 40, padding: '6px 16px', cursor: 'pointer' }}>📁 Cargar<input type="file" accept="audio/*" style={{ display: 'none' }} onChange={(e) => handleFileUpload(item.id, e.target.files[0])} /></label><button onClick={() => resetSound(item.id)} style={{ background: `${C.error}20`, border: `1px solid ${C.error}`, color: C.error, borderRadius: 40, padding: '6px 16px', cursor: 'pointer' }} aria-label={`Restaurar ${item.label} a valor por defecto`}>🔄 Restaurar predefinido</button></div></div></div> ))}</div></div> );
+  return ( <div style={{ padding: '20px', maxWidth: '800px', margin: '0 auto' }}><h2 style={{ marginBottom: '20px', color: C.primary }}>🎵 Configuración de sonidos y música por fases</h2><p style={{ marginBottom: '20px', color: C.outline }}>Puedes cargar tus propios archivos de audio (MP3, WAV, OGG) para cada evento y cada fase musical. Los sonidos se guardan automáticamente.</p><div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>{soundItems.map(item => ( <div key={item.id} style={{ background: C.surfaceContainer, borderRadius: 16, padding: '16px', border: `1px solid ${C.outlineVariant}` }}><div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}><span style={{ fontSize: '24px' }}>{item.icon}</span><span style={{ fontWeight: 'bold' }}>{item.label}</span>{customStatus[item.id] && <span style={{ fontSize: '12px', background: C.primary, color: C.onPrimary, padding: '2px 8px', borderRadius: '20px' }}>📀 Personalizado</span>}</div><div style={{ display: 'flex', gap: '8px' }}><button onClick={() => playTest(item.id)} style={{ background: `${C.secondary}20`, border: `1px solid ${C.secondary}`, color: C.secondary, borderRadius: 40, padding: '6px 16px', cursor: 'pointer' }}>🔊 Probar</button><label style={{ background: `${C.primary}20`, border: `1px solid ${C.primary}`, color: C.primary, borderRadius: 40, padding: '6px 16px', cursor: 'pointer' }}>📁 Cargar<input type="file" accept="audio/*" style={{ display: 'none' }} onChange={(e) => handleFileUpload(item.id, e.target.files[0])} /></label><button onClick={() => resetSound(item.id)} style={{ background: `${C.error}20`, border: `1px solid ${C.error}`, color: C.error, borderRadius: 40, padding: '6px 16px', cursor: 'pointer' }}>🔄 Restaurar predefinido</button></div></div></div> ))}</div></div> );
 });
 
 const QManager = memo(({questions, setQuestions, onExport, resetToDefault}) => {
@@ -660,13 +497,14 @@ const QManager = memo(({questions, setQuestions, onExport, resetToDefault}) => {
 
   const changeType = (typeId) => {
     const def = QUESTION_TYPES[typeId];
+    // Si ya tiene una etapa seleccionada manualmente (distinta a la default del tipo), la conservamos.
+    const defaultStage = TYPE_TO_STAGE[typeId] || 1;
     setForm(f => ({
       ...f,
       type: typeId,
-      stage: TYPE_TO_STAGE[typeId] || 1,
+      stage: f.stage || defaultStage,  // preserva la etapa si ya fue modificada
       options: def.hasOptions ? (f.options?.length === 2 || !f.options ? ["","","",""] : f.options) : null,
       answer: def.answerIsLetter ? "A" : "",
-      // twoOptionsOnly para true_false en el futuro
       ...(def.twoOptionsOnly ? { options: ["Verdadero","Falso"] } : {}),
     }));
   };
@@ -705,7 +543,6 @@ const QManager = memo(({questions, setQuestions, onExport, resetToDefault}) => {
       const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
       const newQs = [];
       rows.forEach((row, idx) => {
-        // Soporta columna "tipo" (nueva) o "etapa" (retrocompatible)
         const typeId = row.tipo || STAGE_TO_TYPE[parseInt(row.etapa)] || "multiple_choice";
         const def = QUESTION_TYPES[typeId] || QUESTION_TYPES.multiple_choice;
         let opts = null;
@@ -717,6 +554,7 @@ const QManager = memo(({questions, setQuestions, onExport, resetToDefault}) => {
         newQs.push(migrateQuestion({
           id: Date.now() + idx,
           type: typeId,
+          stage: parseInt(row.etapa) || TYPE_TO_STAGE[typeId] || 1,
           level: parseInt(row.nivel) || 1,
           text: row.texto || '',
           options: opts,
@@ -751,8 +589,7 @@ const QManager = memo(({questions, setQuestions, onExport, resetToDefault}) => {
 
   return (
     <div style={{ display:"grid", gridTemplateColumns:"360px 1fr", gap:16, height:"calc(100vh - 80px)", padding:"0 24px" }}>
-
-      {/* ── Panel izquierdo: editor ── */}
+      {/* Panel izquierdo: editor */}
       <div style={{ background: C.surfaceContainer, borderRadius:24, padding:16, overflowY:"auto", backdropFilter:"blur(4px)" }}>
         <div style={{ fontSize:12, color:C.secondary, fontWeight:700, letterSpacing:1, marginBottom:12 }}>
           {editId ? "✏️ EDITAR PREGUNTA" : "➕ NUEVA PREGUNTA"}
@@ -787,6 +624,19 @@ const QManager = memo(({questions, setQuestions, onExport, resetToDefault}) => {
               <button key={l} onClick={() => setForm(f => ({...f, level:l}))}
                 style={{ flex:1, background:form.level===l ? `${C.primary}20` : "transparent", border:`1px solid ${form.level===l ? C.primary : C.outlineVariant}`, color: form.level===l ? C.primary : C.outline, borderRadius:40, padding:"5px", fontSize:10, cursor:"pointer" }}>
                 {l===1 ? "Club Bíblico" : "Líderes"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Etapa (1,2,3) - NUEVO */}
+        <div style={{ marginBottom:12 }}>
+          <div style={{ fontSize:9, color:C.outline, letterSpacing:1, marginBottom:4 }}>ETAPA</div>
+          <div style={{ display:"flex", gap:6 }}>
+            {[1,2,3].map(stg => (
+              <button key={stg} onClick={() => setForm(f => ({...f, stage:stg}))}
+                style={{ flex:1, background: form.stage === stg ? `${C.primary}20` : "transparent", border:`1px solid ${form.stage === stg ? C.primary : C.outlineVariant}`, color: form.stage === stg ? C.primary : C.outline, borderRadius:40, padding:"5px", fontSize:10, cursor:"pointer" }}>
+                Etapa {stg}
               </button>
             ))}
           </div>
@@ -857,12 +707,11 @@ const QManager = memo(({questions, setQuestions, onExport, resetToDefault}) => {
         <div style={{ fontSize:9, color:C.outline, textAlign:"center", marginTop:10 }}>{allQuestions.length} preguntas en total</div>
       </div>
 
-      {/* ── Panel derecho: banco de preguntas ── */}
+      {/* Panel derecho: banco de preguntas */}
       <div style={{ background: C.surfaceContainer, borderRadius:24, padding:16, overflowY:"auto" }}>
         <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12, flexWrap:"wrap" }}>
           <div style={{ fontSize:12, color:C.secondary, fontWeight:700 }}>BANCO DE PREGUNTAS</div>
           <div style={{ flex:1 }}/>
-          {/* Filtros por tipo */}
           <button onClick={() => setFilterType("all")}
             style={{ background: filterType==="all" ? `${C.secondary}30` : "transparent", border:`1px solid ${filterType==="all" ? C.secondary : C.outlineVariant}`, color: filterType==="all" ? C.secondary : C.outline, borderRadius:40, padding:"3px 10px", fontSize:10, cursor:"pointer" }}>
             Todos ({allQuestions.length})
@@ -894,7 +743,7 @@ const QManager = memo(({questions, setQuestions, onExport, resetToDefault}) => {
                 <div key={q.id} style={{ background:C.surfaceContainerHigh, borderRadius:12, padding:"8px 12px", marginBottom:6, borderLeft:`4px solid ${def.color}` }}>
                   <div style={{ fontSize:11, lineHeight:1.4 }}>{q.text}</div>
                   <div style={{ fontSize:9, color:C.outline, marginTop:3 }}>
-                    Nv{q.level} · {q.options ? `A:${q.options[0]?.substring(0,15)} B:${q.options[1]?.substring(0,15)} → ${q.answer}` : q.answer?.substring(0,50)}
+                    Nv{q.level} · E{q.stage} · {q.options ? `A:${q.options[0]?.substring(0,15)} B:${q.options[1]?.substring(0,15)} → ${q.answer}` : q.answer?.substring(0,50)}
                   </div>
                   <div style={{ display:"flex", gap:6, marginTop:6 }}>
                     <button onClick={() => edit(q)} style={{ background:`${C.secondary}20`, border:"none", borderRadius:40, padding:"2px 10px", fontSize:9, cursor:"pointer", color:C.secondary }}>✏ Editar</button>
@@ -927,11 +776,8 @@ const VoiceControl = memo(({ onCommand, isActive, onToggle }) => {
   const listeningRef = useRef(false);
   const onCommandRef = useRef(onCommand);
   useEffect(() => { onCommandRef.current = onCommand; }, [onCommand]);
-
   useEffect(() => {
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      console.warn("Reconocimiento de voz no soportado"); return;
-    }
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) { console.warn("Reconocimiento de voz no soportado"); return; }
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
@@ -952,42 +798,17 @@ const VoiceControl = memo(({ onCommand, isActive, onToggle }) => {
       else if (transcript.includes("tiempo")) cmd("timeout");
       else if (transcript.includes("revelar")) cmd("manual_reveal");
     };
-    recognition.onerror = (e) => {
-      console.error("Error voz:", e.error);
-      if (e.error === 'not-allowed') { listeningRef.current = false; onToggle(false); }
-    };
-    recognition.onend = () => {
-      // Reiniciar automáticamente si sigue activo
-      if (listeningRef.current) {
-        try { recognition.start(); } catch(e) {}
-      }
-    };
+    recognition.onerror = (e) => { if (e.error === 'not-allowed') { listeningRef.current = false; onToggle(false); } };
+    recognition.onend = () => { if (listeningRef.current) { try { recognition.start(); } catch(e) {} } };
     recognitionRef.current = recognition;
-    return () => {
-      listeningRef.current = false;
-      try { recognition.stop(); } catch(e) {}
-    };
-  }, []); // Solo se crea una vez
-
+    return () => { listeningRef.current = false; try { recognition.stop(); } catch(e) {} };
+  }, []);
   useEffect(() => {
     if (!recognitionRef.current) return;
-    if (isActive && !listeningRef.current) {
-      listeningRef.current = true;
-      try { recognitionRef.current.start(); } catch(e) {}
-    } else if (!isActive && listeningRef.current) {
-      listeningRef.current = false;
-      try { recognitionRef.current.stop(); } catch(e) {}
-    }
+    if (isActive && !listeningRef.current) { listeningRef.current = true; try { recognitionRef.current.start(); } catch(e) {} }
+    else if (!isActive && listeningRef.current) { listeningRef.current = false; try { recognitionRef.current.stop(); } catch(e) {} }
   }, [isActive]);
-
-  return (
-    <button onClick={() => onToggle(!isActive)}
-      style={{ background: isActive ? "#ff4d4d" : `${C.secondary}20`, border: `1px solid ${isActive ? "#ff4d4d" : C.secondary}`, color: isActive ? "white" : C.secondary, borderRadius: 40, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
-      aria-label={isActive ? "Desactivar control por voz" : "Activar control por voz"}>
-      <span className={isActive ? "voice-active" : ""} style={{ display: "inline-block", width: 12, height: 12, borderRadius: "50%", background: isActive ? "#ff4d4d" : C.secondary, marginRight: 4 }}></span>
-      🎤 {isActive ? "Escuchando..." : "Activar voz"}
-    </button>
-  );
+  return ( <button onClick={() => onToggle(!isActive)} style={{ background: isActive ? "#ff4d4d" : `${C.secondary}20`, border: `1px solid ${isActive ? "#ff4d4d" : C.secondary}`, color: isActive ? "white" : C.secondary, borderRadius: 40, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }} aria-label={isActive ? "Desactivar control por voz" : "Activar control por voz"}> <span className={isActive ? "voice-active" : ""} style={{ display: "inline-block", width: 12, height: 12, borderRadius: "50%", background: isActive ? "#ff4d4d" : C.secondary, marginRight: 4 }}></span> 🎤 {isActive ? "Escuchando..." : "Activar voz"} </button> );
 });
 
 const QuestionHistoryView = memo(({ history, teams }) => {
@@ -1002,24 +823,8 @@ const RemoteControl = () => {
   const [connected, setConnected] = useState(false);
   useEffect(() => { const channel = new BroadcastChannel('dilocontrol'); channelRef.current = channel; setConnected(true); return () => { channel.close(); }; }, []);
   const sendCommand = (cmd) => { if (channelRef.current) channelRef.current.postMessage({ command: cmd }); };
-  useEffect(() => {
-    const handleKey = (e) => {
-      const key = e.key;
-      if (key === '1') sendCommand('start');
-      else if (key === '2') sendCommand('pause');
-      else if (key === '3') sendCommand('correct');
-      else if (key === '4') sendCommand('incorrect');
-      else if (key === '5') sendCommand('next');
-      else if (key === '6') sendCommand('reveal');
-      else if (key === '7') sendCommand('hide');
-      else if (key === '8') sendCommand('show');
-      else if (key === '9') sendCommand('timeout');
-      else if (key === '0') sendCommand('manual_reveal');
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, []);
-  return ( <div style={{ background: C.bg, minHeight: '100vh', padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}><div style={{ maxWidth: 600, width: '100%', background: C.surfaceContainer, borderRadius: 32, padding: 24 }}><h1 style={{ color: C.primary, textAlign: 'center', marginBottom: 24 }}>📱 Control Remoto</h1><div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 16 }}><button className="remote-btn" onClick={() => sendCommand('start')} aria-label="Iniciar temporizador">▶ Iniciar</button><button className="remote-btn" onClick={() => sendCommand('pause')} aria-label="Pausar temporizador">⏸ Pausar</button><button className="remote-btn" onClick={() => sendCommand('correct')} aria-label="Marcar respuesta correcta">✓ Correcto</button><button className="remote-btn" onClick={() => sendCommand('incorrect')} aria-label="Marcar respuesta incorrecta">✗ Incorrecto</button><button className="remote-btn" onClick={() => sendCommand('next')} aria-label="Siguiente enfrentamiento">⏩ Siguiente</button><button className="remote-btn" onClick={() => sendCommand('reveal')} aria-label="Mostrar respuesta">🔍 Mostrar respuesta</button><button className="remote-btn" onClick={() => sendCommand('hide')} aria-label="Ocultar pregunta">🌙 Ocultar pregunta</button><button className="remote-btn" onClick={() => sendCommand('show')} aria-label="Mostrar pregunta">☀️ Mostrar pregunta</button><button className="remote-btn" onClick={() => sendCommand('timeout')} aria-label="Forzar tiempo agotado">⏰ Tiempo</button><button className="remote-btn" onClick={() => sendCommand('manual_reveal')} aria-label="Revelar respuesta manual">🔍 Revelar</button></div><div style={{ textAlign: 'center', marginTop: 24, fontSize: 12, color: C.outline }}>{connected ? "🔗 Conectado a la ventana principal" : "⚠️ Sin conexión"}</div><div style={{ textAlign: 'center', marginTop: 16, fontSize: 10, color: C.outline }}>⌨️ Atajos: 1=Iniciar 2=Pausar 3=Correcto 4=Incorrecto 5=Siguiente 6=Revelar 7=Ocultar 8=Mostrar 9=Tiempo 0=Revelar manual</div></div></div> );
+  useEffect(() => { const handleKey = (e) => { const key = e.key; if (key === '1') sendCommand('start'); else if (key === '2') sendCommand('pause'); else if (key === '3') sendCommand('correct'); else if (key === '4') sendCommand('incorrect'); else if (key === '5') sendCommand('next'); else if (key === '6') sendCommand('reveal'); else if (key === '7') sendCommand('hide'); else if (key === '8') sendCommand('show'); else if (key === '9') sendCommand('timeout'); else if (key === '0') sendCommand('manual_reveal'); }; window.addEventListener('keydown', handleKey); return () => window.removeEventListener('keydown', handleKey); }, []);
+  return ( <div style={{ background: C.bg, minHeight: '100vh', padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}><div style={{ maxWidth: 600, width: '100%', background: C.surfaceContainer, borderRadius: 32, padding: 24 }}><h1 style={{ color: C.primary, textAlign: 'center', marginBottom: 24 }}>📱 Control Remoto</h1><div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 16 }}><button className="remote-btn" onClick={() => sendCommand('start')}>▶ Iniciar</button><button className="remote-btn" onClick={() => sendCommand('pause')}>⏸ Pausar</button><button className="remote-btn" onClick={() => sendCommand('correct')}>✓ Correcto</button><button className="remote-btn" onClick={() => sendCommand('incorrect')}>✗ Incorrecto</button><button className="remote-btn" onClick={() => sendCommand('next')}>⏩ Siguiente</button><button className="remote-btn" onClick={() => sendCommand('reveal')}>🔍 Mostrar respuesta</button><button className="remote-btn" onClick={() => sendCommand('hide')}>🌙 Ocultar pregunta</button><button className="remote-btn" onClick={() => sendCommand('show')}>☀️ Mostrar pregunta</button><button className="remote-btn" onClick={() => sendCommand('timeout')}>⏰ Tiempo</button><button className="remote-btn" onClick={() => sendCommand('manual_reveal')}>🔍 Revelar</button></div><div style={{ textAlign: 'center', marginTop: 24, fontSize: 12, color: C.outline }}>{connected ? "🔗 Conectado a la ventana principal" : "⚠️ Sin conexión"}</div><div style={{ textAlign: 'center', marginTop: 16, fontSize: 10, color: C.outline }}>⌨️ Atajos: 1=Iniciar 2=Pausar 3=Correcto 4=Incorrecto 5=Siguiente 6=Revelar 7=Ocultar 8=Mostrar 9=Tiempo 0=Revelar manual</div></div></div> );
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1041,120 +846,29 @@ function ProjectorView() {
   const [fontScale, setFontScale] = useState(1);
   const [revealTimer, setRevealTimer] = useState(null);
   const [correctRevealIndex, setCorrectRevealIndex] = useState(null);
-  
-  useEffect(() => { 
-    const handler = (e) => { if (e.data?.type === 'PROJECTOR_UPDATE') setState(prev => ({ ...prev, ...e.data.payload })); }; 
-    window.addEventListener('message', handler); 
-    if (window.opener) window.opener.postMessage({ type: 'PROJECTOR_READY' }, '*'); 
-    return () => window.removeEventListener('message', handler); 
-  }, []);
-  
-  useEffect(() => {
-    if (state.showWait) {
-      if (typeof canvasConfetti !== 'undefined') {
-        canvasConfetti({ particleCount: 150, spread: 70, origin: { y: 0.6 }, startVelocity: 15, colors: ['#97df5c', '#ffc063', '#7fd0ff'] });
-        canvasConfetti({ particleCount: 100, spread: 100, origin: { y: 0.7, x: 0.2 }, startVelocity: 20 });
-        canvasConfetti({ particleCount: 100, spread: 100, origin: { y: 0.7, x: 0.8 }, startVelocity: 20 });
-      }
-      const lights = document.createElement('div'); lights.className = 'light-effect';
-      for (let i = 0; i < 12; i++) { const light = document.createElement('div'); light.style.width = `${Math.random() * 150 + 50}px`; light.style.height = light.style.width; light.style.left = `${Math.random() * 100}%`; light.style.top = `${Math.random() * 100}%`; light.style.animationDelay = `${Math.random() * 1}s`; lights.appendChild(light); }
-      document.body.appendChild(lights); setTimeout(() => lights.remove(), 2000);
-    }
-  }, [state.showWait]);
-  
-  useEffect(() => {
-    if (state.resolved && state.curQ && getQType(state.curQ).hasOptions) {
-      if (revealTimer) clearTimeout(revealTimer);
-      const timer = setTimeout(() => {
-        const correctLetter = state.curQ.answer;
-        const options = state.curQ.options;
-        const correctIdx = options ? options.findIndex((opt, idx) => ['A','B','C','D'][idx] === correctLetter) : -1;
-        setCorrectRevealIndex(correctIdx);
-        setTimeout(() => setCorrectRevealIndex(null), 1000);
-      }, 300);
-      setRevealTimer(timer);
-      return () => clearTimeout(timer);
-    } else setCorrectRevealIndex(null);
-  }, [state.resolved, state.curQ]);
-  
+  useEffect(() => { const handler = (e) => { if (e.data?.type === 'PROJECTOR_UPDATE') setState(prev => ({ ...prev, ...e.data.payload })); }; window.addEventListener('message', handler); if (window.opener) window.opener.postMessage({ type: 'PROJECTOR_READY' }, '*'); return () => window.removeEventListener('message', handler); }, []);
+  useEffect(() => { if (state.showWait) { if (typeof canvasConfetti !== 'undefined') { canvasConfetti({ particleCount: 150, spread: 70, origin: { y: 0.6 }, startVelocity: 15, colors: ['#97df5c', '#ffc063', '#7fd0ff'] }); canvasConfetti({ particleCount: 100, spread: 100, origin: { y: 0.7, x: 0.2 }, startVelocity: 20 }); canvasConfetti({ particleCount: 100, spread: 100, origin: { y: 0.7, x: 0.8 }, startVelocity: 20 }); } const lights = document.createElement('div'); lights.className = 'light-effect'; for (let i = 0; i < 12; i++) { const light = document.createElement('div'); light.style.width = `${Math.random() * 150 + 50}px`; light.style.height = light.style.width; light.style.left = `${Math.random() * 100}%`; light.style.top = `${Math.random() * 100}%`; light.style.animationDelay = `${Math.random() * 1}s`; lights.appendChild(light); } document.body.appendChild(lights); setTimeout(() => lights.remove(), 2000); } }, [state.showWait]);
+  useEffect(() => { if (state.resolved && state.curQ && getQType(state.curQ).hasOptions) { if (revealTimer) clearTimeout(revealTimer); const timer = setTimeout(() => { const correctLetter = state.curQ.answer; const options = state.curQ.options; const correctIdx = options ? options.findIndex((opt, idx) => ['A','B','C','D'][idx] === correctLetter) : -1; setCorrectRevealIndex(correctIdx); setTimeout(() => setCorrectRevealIndex(null), 1000); }, 300); setRevealTimer(timer); return () => clearTimeout(timer); } else setCorrectRevealIndex(null); }, [state.resolved, state.curQ]);
   const increaseFont = () => setFontScale(prev => Math.min(1.8, prev + 0.1));
   const decreaseFont = () => setFontScale(prev => Math.max(0.7, prev - 0.1));
-  
   const { curQ, showAnswer, resolved, sel, remaining, running, teams, activeMatchTeams, matchTeamIndices, hiddenOptions, extraTime, responseMode, activeResponderTeamIdx, showWait, roundName, showTie, tiePhase, tieWord, tieRunning, tieTkey, tieWinner, tieTeams, tieTeamIndexes, projectorClear, stageConfig, waitConfig, questionHistory, winner } = state;
-  
-  useEffect(() => {
-    if (winner && typeof canvasConfetti !== 'undefined') {
-      const burst = () => {
-        canvasConfetti({ particleCount: 200, spread: 120, origin: { y: 0.5 }, startVelocity: 30, colors: ['#ffc063', '#97df5c', '#7fd0ff', '#ffffff'] });
-        canvasConfetti({ particleCount: 150, spread: 140, origin: { y: 0.6, x: 0.2 }, startVelocity: 25 });
-        canvasConfetti({ particleCount: 150, spread: 140, origin: { y: 0.6, x: 0.8 }, startVelocity: 25 });
-      };
-      burst();
-      const t1 = setTimeout(burst, 1200);
-      const t2 = setTimeout(burst, 2400);
-      return () => { clearTimeout(t1); clearTimeout(t2); };
-    }
-  }, [winner]);
+  useEffect(() => { if (winner && typeof canvasConfetti !== 'undefined') { const burst = () => { canvasConfetti({ particleCount: 200, spread: 120, origin: { y: 0.5 }, startVelocity: 30, colors: ['#ffc063', '#97df5c', '#7fd0ff', '#ffffff'] }); canvasConfetti({ particleCount: 150, spread: 140, origin: { y: 0.6, x: 0.2 }, startVelocity: 25 }); canvasConfetti({ particleCount: 150, spread: 140, origin: { y: 0.6, x: 0.8 }, startVelocity: 25 }); }; burst(); const t1 = setTimeout(burst, 1200); const t2 = setTimeout(burst, 2400); return () => { clearTimeout(t1); clearTimeout(t2); }; } }, [winner]);
   const allTeams = useMemo(() => teams.filter(t => !t.eliminated).sort((a,b)=>b.score-a.score), [teams]);
   const matchTeams = activeMatchTeams.length ? activeMatchTeams : allTeams.slice(0,2);
   const mIdxs = matchTeamIndices.length ? matchTeamIndices : matchTeams.map((_,i)=>i);
   const getTeamLetter = (globalIdx) => String.fromCharCode(65 + globalIdx);
-  const getVisibleOptions = () => {
-    if (!curQ || !curQ.options) return [];
-    if (!hiddenOptions || hiddenOptions.length === 0) return curQ.options.map((opt, idx) => ({ opt, idx, letter: ['A','B','C','D'][idx] }));
-    return curQ.options.filter((_, idx) => !hiddenOptions.includes(idx)).map((opt, idx) => { const originalIdx = curQ.options.findIndex(o => o === opt); return { opt, idx: originalIdx, letter: ['A','B','C','D'][originalIdx] }; });
-  };
-  
-  if (showWait) return ( <div style={{ position: 'relative', overflow: 'hidden' }}><WaitScreen roundName={roundName} teams={teams} onClose={() => {}} waitConfig={waitConfig} /><div style={{ position: 'absolute', bottom: 20, right: 20, zIndex: 200 }}><div className="font-controls"><button onClick={decreaseFont} aria-label="Reducir tamaño de fuente">A-</button><button onClick={increaseFont} aria-label="Aumentar tamaño de fuente">A+</button></div></div></div> );
+  const getVisibleOptions = () => { if (!curQ || !curQ.options) return []; if (!hiddenOptions || hiddenOptions.length === 0) return curQ.options.map((opt, idx) => ({ opt, idx, letter: ['A','B','C','D'][idx] })); return curQ.options.filter((_, idx) => !hiddenOptions.includes(idx)).map((opt, idx) => { const originalIdx = curQ.options.findIndex(o => o === opt); return { opt, idx: originalIdx, letter: ['A','B','C','D'][originalIdx] }; }); };
+  if (showWait) return ( <div style={{ position: 'relative', overflow: 'hidden' }}><WaitScreen roundName={roundName} teams={teams} onClose={() => {}} waitConfig={waitConfig} /><div style={{ position: 'absolute', bottom: 20, right: 20, zIndex: 200 }}><div className="font-controls"><button onClick={decreaseFont}>A-</button><button onClick={increaseFont}>A+</button></div></div></div> );
   if (showTie) { const activeTieTeams = (tieTeams || []).filter(t => !t.eliminated); return ( <div style={{ position:"fixed", inset:0, zIndex:9500, background: C.surfaceContainerLowest, backdropFilter:"blur(12px)", display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden" }}><div className="tie-container"><div style={{fontSize:24, fontWeight:800, color:C.tertiary, marginBottom:12}}>⚡ DESEMPATE</div><div style={{fontSize:14, color:C.outline, marginBottom:24}}>El primer equipo que recite correctamente gana 500 pts</div><div className="tie-word"><div style={{fontSize:12, color:C.tertiary, letterSpacing:2, marginBottom:8}}>RECITAR:</div><div style={{fontSize:20, fontWeight:600}}>{tieWord || "..."}</div></div><div style={{display:"flex", justifyContent:"center", marginBottom:24}}><Timer seconds={30} running={tieRunning} onEnd={()=>{}} tkey={tieTkey} size="lg" /></div>{tiePhase === 'active' && ( <div className="tie-teams">{activeTieTeams.map((t,i) => ( <div key={i} className="tie-team-card" style={{borderLeft: `4px solid ${TC[t.globalIdx % TC.length]}`}}><div style={{fontSize:14, fontWeight:600}}>{t.name}</div><div style={{fontSize:12, color:C.outline}}>Esperando respuesta...</div></div> ))}</div> )}{tiePhase === 'done' && ( <div style={{marginTop:24}}>{tieWinner !== null && tieWinner >= 0 && activeTieTeams[tieWinner] ? ( <div style={{background: `${C.tertiary}20`, borderRadius: 40, padding: '16px', border: `1px solid ${C.tertiary}`}}><div style={{fontSize:48}}>🏆</div><div style={{fontSize:24, fontWeight:800, color:C.tertiary}}>{activeTieTeams[tieWinner]?.name}</div><div style={{fontSize:16, color:C.outline}}>Gana el desempate +500 pts</div></div> ) : ( <div style={{fontSize:20, fontWeight:600, color:C.warn}}>🤝 Empate - Sin ganador</div> )}</div> )}</div><div style={{ position: 'fixed', bottom: 20, right: 20, zIndex: 201 }}><div className="font-controls"><button onClick={decreaseFont}>A-</button><button onClick={increaseFont}>A+</button></div></div></div> ); }
-  if (winner) return (
-    <div style={{ position: 'fixed', inset: 0, background: 'radial-gradient(ellipse at center, #1a2e1a 0%, #0a141d 70%)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-      <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at 50% 40%, rgba(151,223,92,0.18), transparent 65%)' }} />
-      <div style={{ position: 'relative', zIndex: 2, textAlign: 'center', padding: 40 }}>
-        <div style={{ fontSize: 120, lineHeight: 1, marginBottom: 16, filter: 'drop-shadow(0 0 40px #ffc063)' }}>{winner.avatar || "🏆"}</div>
-        <div style={{ fontFamily: "'Hanken Grotesk', sans-serif", fontSize: 56, fontWeight: 900, color: C.tertiary, letterSpacing: 4, marginBottom: 8, textShadow: '0 0 40px #ffc063' }}>¡CAMPEÓN!</div>
-        <div style={{ fontFamily: "'Hanken Grotesk', sans-serif", fontSize: 96, fontWeight: 900, color: C.primary, letterSpacing: -4, lineHeight: 1, textShadow: '0 0 60px #97df5c', marginBottom: 24 }}>{winner.name}</div>
-        <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 48, fontWeight: 700, color: C.tertiary }}>{winner.score.toLocaleString()} pts</div>
-        <div style={{ marginTop: 40, display: 'flex', justifyContent: 'center', gap: 20 }}>
-          {teams.filter(t=>t.eliminated).sort((a,b)=>b.score-a.score).map((t,i) => (
-            <div key={t.name} style={{ background: 'rgba(255,255,255,0.05)', border: `1px solid ${C.outlineVariant}`, borderRadius: 16, padding: '10px 20px', textAlign: 'center' }}>
-              <div style={{ fontSize: 12, color: C.outline }}>#{i+2}</div>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>{t.name}</div>
-              <div style={{ fontSize: 16, fontFamily: "'JetBrains Mono', monospace", color: C.outline }}>{t.score.toLocaleString()}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="font-controls" style={{ position: 'fixed', bottom: 20, right: 20, zIndex: 200 }}><button onClick={decreaseFont}>A-</button><button onClick={increaseFont}>A+</button></div>
-    </div>
-  );
+  if (winner) return ( <div style={{ position: 'fixed', inset: 0, background: 'radial-gradient(ellipse at center, #1a2e1a 0%, #0a141d 70%)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}> <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at 50% 40%, rgba(151,223,92,0.18), transparent 65%)' }} /> <div style={{ position: 'relative', zIndex: 2, textAlign: 'center', padding: 40 }}> <div style={{ fontSize: 120, lineHeight: 1, marginBottom: 16, filter: 'drop-shadow(0 0 40px #ffc063)' }}>{winner.avatar || "🏆"}</div> <div style={{ fontFamily: "'Hanken Grotesk', sans-serif", fontSize: 56, fontWeight: 900, color: C.tertiary, letterSpacing: 4, marginBottom: 8, textShadow: '0 0 40px #ffc063' }}>¡CAMPEÓN!</div> <div style={{ fontFamily: "'Hanken Grotesk', sans-serif", fontSize: 96, fontWeight: 900, color: C.primary, letterSpacing: -4, lineHeight: 1, textShadow: '0 0 60px #97df5c', marginBottom: 24 }}>{winner.name}</div> <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 48, fontWeight: 700, color: C.tertiary }}>{winner.score.toLocaleString()} pts</div> <div style={{ marginTop: 40, display: 'flex', justifyContent: 'center', gap: 20 }}> {teams.filter(t=>t.eliminated).sort((a,b)=>b.score-a.score).map((t,i) => ( <div key={t.name} style={{ background: 'rgba(255,255,255,0.05)', border: `1px solid ${C.outlineVariant}`, borderRadius: 16, padding: '10px 20px', textAlign: 'center' }}> <div style={{ fontSize: 12, color: C.outline }}>#{i+2}</div> <div style={{ fontSize: 14, fontWeight: 600 }}>{t.name}</div> <div style={{ fontSize: 16, fontFamily: "'JetBrains Mono', monospace", color: C.outline }}>{t.score.toLocaleString()}</div> </div> ))} </div> </div> <div className="font-controls" style={{ position: 'fixed', bottom: 20, right: 20, zIndex: 200 }}><button onClick={decreaseFont}>A-</button><button onClick={increaseFont}>A+</button></div> </div> );
   if (projectorClear) return ( <div style={{ background: C.bg, minHeight: '100vh', color: C.onSurface, fontFamily: "'Inter', sans-serif", display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}><div style={{ textAlign: "center" }}><svg viewBox="0 0 3450 1313" style={{ height: '120px', width: 'auto', marginBottom: '20px' }}><use href="#logo-svg-defs" /></svg><div style={{ fontSize: 40, fontWeight: 800, fontFamily: "'Hanken Grotesk', sans-serif", letterSpacing: -2, color: C.secondary }}>PREPÁRATE</div><div style={{ fontSize: 24, marginTop: 16, color: C.outline }}>Siguiente pregunta en breve...</div></div><div className="font-controls"><button onClick={decreaseFont}>A-</button><button onClick={increaseFont}>A+</button></div></div> );
   const currentStageConfig = curQ ? stageConfig[curQ.stage] : DEFAULT_STAGE_CONFIG[1];
   const currentQType = getQType(curQ);
-  return ( <div style={{ background: C.bg, minHeight: '100vh', color: C.onSurface, fontFamily: "'Inter', sans-serif", display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
-    <div style={{ position: "fixed", top: 20, right: 30, zIndex: 100, background: C.surfaceContainer, padding: "6px 16px", borderRadius: 40, border: `1px solid ${C.primary}`, backdropFilter: "blur(8px)" }}><span className="live-dot"></span><span style={{ fontSize: 12, fontWeight: 700 }}>LIVE</span></div>
-    <div className="font-controls" style={{ position: 'fixed', bottom: 20, right: 20, zIndex: 200, display: 'flex', gap: 8, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', padding: '8px 12px', borderRadius: 40 }}><button onClick={decreaseFont} aria-label="Reducir fuente">A-</button><button onClick={increaseFont} aria-label="Aumentar fuente">A+</button></div>
-    <div className="scalable-content" style={{ fontSize: `calc(16px * ${fontScale})` }}>
-      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 16, background: C.surfaceContainerLow, padding: "16px 32px", borderBottom: `2px solid ${curQ ? currentStageConfig.color : C.primary}` }}>
-        {allTeams.map((t,i) => { const col = TC[i%TC.length]; return ( <div key={t.name} style={{ background: `rgba(44,54,64,0.6)`, borderRadius: 12, padding: "6px 20px", textAlign: "center", minWidth: 140, backdropFilter: "blur(4px)" }}><div style={{ fontSize: 12, color: col, fontWeight: 700, letterSpacing: 1 }}>{getTeamLetter(i)} - <span style={{ fontSize: 16 }}>{t.avatar || "🏆"}</span> {t.name}</div><div style={{ fontSize: 36, fontWeight: 900, fontFamily: "'JetBrains Mono', monospace", lineHeight: 1 }}>{t.score.toLocaleString()}</div></div> ); })}
-      </div>
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 60px", gap: 60, flexWrap: "wrap" }}>
-        {curQ ? ( <>
-          <div style={{ flex: 2, minWidth: 320, maxWidth: 1000 }}>
-            <div style={{ fontSize: 42, fontWeight: 700, fontFamily: "'Hanken Grotesk', sans-serif", lineHeight: 1.4, marginBottom: 32, textAlign: "center" }}>{curQ.text}</div>
-            {curQ.options && currentQType.hasOptions && ( <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>{getVisibleOptions().map(({ opt, idx, letter }) => { const isOk = letter === curQ.answer; const picked = matchTeams.filter((_,ti)=>sel?.[ti]===letter); let bg = C.surfaceContainerHigh, bc = C.outlineVariant; if(resolved){ if(isOk){ bg = C.primaryContainer; bc = C.primary; } else if(picked.length){ bg = C.errorContainer; bc = C.error; } } else if(picked.length){ bg = C.secondaryContainer; bc = C.secondary; } const revealClass = (resolved && isOk && correctRevealIndex === idx) ? "correct-reveal" : ""; return ( <div key={idx} className={`option-fade-in ${revealClass}`} style={{ animationDelay: `${idx * 0.07}s`, background: bg, border: `2px solid ${bc}`, borderRadius: 20, padding: "20px 24px", display: "flex", alignItems: "center", gap: 20, transition: "all 0.2s", backdropFilter: "blur(4px)" }}><span style={{ width: 56, height: 56, borderRadius: "50%", background: resolved && isOk ? C.primary : "rgba(255,255,255,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 800 }}>{letter}</span><span style={{ fontSize: 26, flex: 1 }}>{opt}</span>{picked.length>0 && ( <div style={{ display: "flex", gap: 10 }}>{picked.map((_,ti)=> { const globalIdx = mIdxs[ti]; const teamLetter = getTeamLetter(globalIdx); const teamAvatar = teams[globalIdx]?.avatar || "🏆"; return <div key={ti} style={{ width: 44, height: 44, borderRadius: "50%", background: TC[globalIdx % TC.length], display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: "#000", flexDirection: "column" }}><span style={{fontSize:16}}>{teamAvatar}</span><span style={{fontSize:9}}>{teamLetter}</span></div> })}</div> )}{resolved && isOk && <span style={{ fontSize: 32 }}>✓</span>}</div> ); })}</div> )}
-            {!currentQType.hasOptions && currentQType.revealMode === "show_text" && showAnswer && ( <div style={{ background: `${C.primary}20`, border: `2px solid ${C.primary}`, borderRadius: 28, padding: "28px 40px", textAlign: "center" }}><div style={{ fontSize: 18, color: C.primary, letterSpacing: 2 }}>RESPUESTA CORRECTA</div><div style={{ fontSize: 28, marginTop: 12 }}>{curQ.answer}</div></div> )}
-            {!currentQType.hasOptions && !showAnswer && !resolved && ( <div style={{ textAlign: "center", marginTop: 40, fontFamily: "'JetBrains Mono', monospace", fontSize: 32, color: C.outline }}>— — —</div> )}
-          </div>
-          <div style={{ flexShrink: 0 }}><Timer seconds={currentStageConfig.time} running={running} onEnd={()=>{}} tkey={remaining} extraTime={extraTime || 0} size="lg" /></div>
-        </> ) : ( <div style={{ textAlign: "center" }}><svg viewBox="0 0 3450 1313" style={{ height: '120px', width: 'auto', marginBottom: '20px' }}><use href="#logo-svg-defs" /></svg><div style={{ fontSize: 80, fontWeight: 800, fontFamily: "'Hanken Grotesk', sans-serif", letterSpacing: -6, color: C.primary, textShadow: "0 0 40px #97df5c" }}>DILO</div><div style={{ fontSize: 80, fontWeight: 800, fontFamily: "'Hanken Grotesk', sans-serif", letterSpacing: -6 }}>COMO</div><div style={{ fontSize: 80, fontWeight: 800, fontFamily: "'Hanken Grotesk', sans-serif", letterSpacing: -6, color: C.secondary }}>ES!</div></div> )}
-      </div>
-    </div>
-  </div> );
+  return ( <div style={{ background: C.bg, minHeight: '100vh', color: C.onSurface, fontFamily: "'Inter', sans-serif", display: 'flex', flexDirection: 'column', overflow: 'auto' }}> <div style={{ position: "fixed", top: 20, right: 30, zIndex: 100, background: C.surfaceContainer, padding: "6px 16px", borderRadius: 40, border: `1px solid ${C.primary}`, backdropFilter: "blur(8px)" }}><span className="live-dot"></span><span style={{ fontSize: 12, fontWeight: 700 }}>LIVE</span></div> <div className="font-controls" style={{ position: 'fixed', bottom: 20, right: 20, zIndex: 200, display: 'flex', gap: 8, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', padding: '8px 12px', borderRadius: 40 }}><button onClick={decreaseFont}>A-</button><button onClick={increaseFont}>A+</button></div> <div className="scalable-content" style={{ fontSize: `calc(16px * ${fontScale})` }}> <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 16, background: C.surfaceContainerLow, padding: "16px 32px", borderBottom: `2px solid ${curQ ? currentStageConfig.color : C.primary}` }}> {allTeams.map((t,i) => { const col = TC[i%TC.length]; return ( <div key={t.name} style={{ background: `rgba(44,54,64,0.6)`, borderRadius: 12, padding: "6px 20px", textAlign: "center", minWidth: 140, backdropFilter: "blur(4px)" }}><div style={{ fontSize: 12, color: col, fontWeight: 700, letterSpacing: 1 }}>{getTeamLetter(i)} - <span style={{ fontSize: 16 }}>{t.avatar || "🏆"}</span> {t.name}</div><div style={{ fontSize: 36, fontWeight: 900, fontFamily: "'JetBrains Mono', monospace", lineHeight: 1 }}>{t.score.toLocaleString()}</div></div> ); })} </div> <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 60px", gap: 60, flexWrap: "wrap" }}> {curQ ? ( <> <div style={{ flex: 2, minWidth: 320, maxWidth: 1000 }}> <div style={{ fontSize: 42, fontWeight: 700, fontFamily: "'Hanken Grotesk', sans-serif", lineHeight: 1.4, marginBottom: 32, textAlign: "center" }}>{curQ.text}</div> {curQ.options && currentQType.hasOptions && ( <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>{getVisibleOptions().map(({ opt, idx, letter }) => { const isOk = letter === curQ.answer; const picked = matchTeams.filter((_,ti)=>sel?.[ti]===letter); let bg = C.surfaceContainerHigh, bc = C.outlineVariant; if(resolved){ if(isOk){ bg = C.primaryContainer; bc = C.primary; } else if(picked.length){ bg = C.errorContainer; bc = C.error; } } else if(picked.length){ bg = C.secondaryContainer; bc = C.secondary; } const revealClass = (resolved && isOk && correctRevealIndex === idx) ? "correct-reveal" : ""; return ( <div key={idx} className={`option-fade-in ${revealClass}`} style={{ animationDelay: `${idx * 0.07}s`, background: bg, border: `2px solid ${bc}`, borderRadius: 20, padding: "20px 24px", display: "flex", alignItems: "center", gap: 20, transition: "all 0.2s", backdropFilter: "blur(4px)" }}><span style={{ width: 56, height: 56, borderRadius: "50%", background: resolved && isOk ? C.primary : "rgba(255,255,255,0.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 800 }}>{letter}</span><span style={{ fontSize: 26, flex: 1 }}>{opt}</span>{picked.length>0 && ( <div style={{ display: "flex", gap: 10 }}>{picked.map((_,ti)=> { const globalIdx = mIdxs[ti]; const teamLetter = getTeamLetter(globalIdx); const teamAvatar = teams[globalIdx]?.avatar || "🏆"; return <div key={ti} style={{ width: 44, height: 44, borderRadius: "50%", background: TC[globalIdx % TC.length], display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: "#000", flexDirection: "column" }}><span style={{fontSize:16}}>{teamAvatar}</span><span style={{fontSize:9}}>{teamLetter}</span></div> })}</div> )}{resolved && isOk && <span style={{ fontSize: 32 }}>✓</span>}</div> ); })}</div> )} {!currentQType.hasOptions && currentQType.revealMode === "show_text" && showAnswer && ( <div style={{ background: `${C.primary}20`, border: `2px solid ${C.primary}`, borderRadius: 28, padding: "28px 40px", textAlign: "center" }}><div style={{ fontSize: 18, color: C.primary, letterSpacing: 2 }}>RESPUESTA CORRECTA</div><div style={{ fontSize: 28, marginTop: 12 }}>{curQ.answer}</div></div> )} {!currentQType.hasOptions && !showAnswer && !resolved && ( <div style={{ textAlign: "center", marginTop: 40, fontFamily: "'JetBrains Mono', monospace", fontSize: 32, color: C.outline }}>— — —</div> )} </div> <div style={{ flexShrink: 0 }}><Timer seconds={currentStageConfig.time} running={running} onEnd={()=>{}} tkey={remaining} extraTime={extraTime || 0} size="lg" /></div> </> ) : ( <div style={{ textAlign: "center" }}><svg viewBox="0 0 3450 1313" style={{ height: '120px', width: 'auto', marginBottom: '20px' }}><use href="#logo-svg-defs" /></svg><div style={{ fontSize: 80, fontWeight: 800, fontFamily: "'Hanken Grotesk', sans-serif", letterSpacing: -6, color: C.primary, textShadow: "0 0 40px #97df5c" }}>DILO</div><div style={{ fontSize: 80, fontWeight: 800, fontFamily: "'Hanken Grotesk', sans-serif", letterSpacing: -6 }}>COMO</div><div style={{ fontSize: 80, fontWeight: 800, fontFamily: "'Hanken Grotesk', sans-serif", letterSpacing: -6, color: C.secondary }}>ES!</div></div> )} </div> </div> </div> );
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
- *  VISTA PRINCIPAL DEL JUEGO (GameView) - CORREGIDA DEFINITIVA
+ *  VISTA PRINCIPAL DEL JUEGO (GameView)
  * ═══════════════════════════════════════════════════════════════════════════ */
 function exportResultsToExcel(teams, historyLog, roundsHistory) {
   const summary = teams.map(t => ({ Equipo: t.name, 'Puntaje final': t.score, Eliminado: t.eliminated ? 'Sí' : 'No', Racha: t.streak || 0, Avatar: t.avatar || "🏆" }));
@@ -1178,14 +892,7 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
   const [usedIds, setUsedIds] = useState(() => initialState?.usedIds || []);
   const [roundMatches, setRoundMatches] = useState(() => initialState?.roundMatches || []);
   const [matchIdx, setMatchIdx] = useState(() => initialState?.matchIdx || 0);
-  const [roundName, setRoundName] = useState(() => {
-    if (initialState?.roundName) return initialState.roundName;
-    const activeCount = (initialState?.teams || initialTeams).filter(t => !t.eliminated).length;
-    if (activeCount <= 2) return "Final";
-    if (activeCount <= 4) return "Semifinal";
-    if (activeCount <= 8) return "Cuartos de Final";
-    return "Ronda Inicial";
-  });
+  const [roundName, setRoundName] = useState(() => { if (initialState?.roundName) return initialState.roundName; const activeCount = (initialState?.teams || initialTeams).filter(t => !t.eliminated).length; if (activeCount <= 2) return "Final"; if (activeCount <= 4) return "Semifinal"; if (activeCount <= 8) return "Cuartos de Final"; return "Ronda Inicial"; });
   const [roundDone, setRoundDone] = useState(() => initialState?.roundDone || false);
   const [history, setHistory] = useState(() => initialState?.history || []);
   const [curRoundData, setCurRoundData] = useState(() => initialState?.curRoundData || []);
@@ -1218,21 +925,8 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
   const [stageConfig, setStageConfig] = useState(initialStageConfig);
   const [waitConfig, setWaitConfig] = useState(initialWaitConfig);
 
-  // Detectar ganador cuando teams cambia (fuera del setState callback para evitar problemas de batching)
   const winnerDetectedRef = useRef(false);
-  useEffect(() => {
-    const activeTeams = teams.filter(t => !t.eliminated);
-    // Reset si se reinicia el juego (todos activos)
-    if (activeTeams.length === teams.length && teams.length > 1) {
-      winnerDetectedRef.current = false;
-    }
-    if (winnerDetectedRef.current) return;
-    if (activeTeams.length === 1 && teams.length > 1) {
-      winnerDetectedRef.current = true;
-      setWinner(activeTeams[0]);
-      AudioEngine.fanfare();
-    }
-  }, [teams]);
+  useEffect(() => { const activeTeams = teams.filter(t => !t.eliminated); if (activeTeams.length === teams.length && teams.length > 1) { winnerDetectedRef.current = false; } if (winnerDetectedRef.current) return; if (activeTeams.length === 1 && teams.length > 1) { winnerDetectedRef.current = true; setWinner(activeTeams[0]); AudioEngine.fanfare(); } }, [teams]);
 
   const active = useMemo(() => teams.filter(t=>!t.eliminated), [teams]);
   const curMatch = roundMatches[matchIdx] || [];
@@ -1240,10 +934,7 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
   const mTeams = mIdxs.map(i=>teams[i]).filter(Boolean);
   const getTeamLetter = (globalIdx) => String.fromCharCode(65 + globalIdx);
 
-  const persistGameState = useCallback(async () => {
-    const gameState = { teams, usedIds, roundMatches, matchIdx, roundName, roundDone, history, curRoundData, log, fStage, fLevel, curQ, showAns, resolved, running, tkey, extraTime, sel, hiddenOptions, responseMode, activeResponderTeamIdx, matchActive, questionHistory };
-    await saveGameStateToDB(gameState);
-  }, [teams, usedIds, roundMatches, matchIdx, roundName, roundDone, history, curRoundData, log, fStage, fLevel, curQ, showAns, resolved, running, tkey, extraTime, sel, hiddenOptions, responseMode, activeResponderTeamIdx, matchActive, questionHistory]);
+  const persistGameState = useCallback(async () => { const gameState = { teams, usedIds, roundMatches, matchIdx, roundName, roundDone, history, curRoundData, log, fStage, fLevel, curQ, showAns, resolved, running, tkey, extraTime, sel, hiddenOptions, responseMode, activeResponderTeamIdx, matchActive, questionHistory }; await saveGameStateToDB(gameState); }, [teams, usedIds, roundMatches, matchIdx, roundName, roundDone, history, curRoundData, log, fStage, fLevel, curQ, showAns, resolved, running, tkey, extraTime, sel, hiddenOptions, responseMode, activeResponderTeamIdx, matchActive, questionHistory]);
 
   useEffect(() => { const interval = setInterval(() => { if (matchActive) persistGameState(); }, 30000); return () => clearInterval(interval); }, [persistGameState, matchActive]);
   useEffect(() => { if (matchActive) persistGameState(); }, [teams, usedIds, roundMatches, matchIdx, roundName, roundDone, history, curRoundData, matchActive, persistGameState, curQ, showAns, resolved, running, tkey, extraTime, sel, hiddenOptions, responseMode, activeResponderTeamIdx, questionHistory]);
@@ -1252,118 +943,18 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
   const triggerAnim = useCallback((ti, pts) => { const el = teamCardRefs.current[ti]; if (!el) return; const rect = el.getBoundingClientRect(); const col = pts > 0 ? C.primary : C.error; setScoreAnims(a=>[...a, {id:Date.now()+Math.random(), pts, col, x: rect.left + rect.width/2 - 20, y: rect.top - 10}]); }, []);
   const removeAnim = useCallback(id => setScoreAnims(a=>a.filter(x=>x.id!==id)), []);
   const getRoundName = remCount => { if (remCount <= 2) return "Final"; if (remCount <= 4) return "Semifinal"; if (remCount <= 8) return "Cuartos de Final"; return "Ronda Inicial"; };
-  const genMatches = useCallback(() => {
-    const names = active.map(t=>t.name); let rr = [...names]; const hasBye = rr.length % 2 === 1; if (hasBye) rr.push("__BYE__"); const n = rr.length; const m = [];
-    for (let r = 0; r < n - 1; r++) { for (let i = 0; i < n / 2; i++) { const t1 = rr[i], t2 = rr[n - 1 - i]; if (t1 === "__BYE__") m.push([t2, "__BYE__"]); else if (t2 === "__BYE__") m.push([t1, "__BYE__"]); else m.push([t1, t2]); } rr = [rr[0], rr[n-1], ...rr.slice(1, n-1)]; }
-    setRoundMatches(m); setMatchIdx(0); setMatchActive(false); setRoundDone(false); setCurRoundData([]); addLog(`${m.filter(x => !x.includes("__BYE__")).length} enfrentamientos generados — ${roundName}${hasBye ? " (1 pase libre)" : ""}`);
-  }, [active, roundName, addLog]);
+  const genMatches = useCallback(() => { const names = active.map(t=>t.name); let rr = [...names]; const hasBye = rr.length % 2 === 1; if (hasBye) rr.push("__BYE__"); const n = rr.length; const m = []; for (let r = 0; r < n - 1; r++) { for (let i = 0; i < n / 2; i++) { const t1 = rr[i], t2 = rr[n - 1 - i]; if (t1 === "__BYE__") m.push([t2, "__BYE__"]); else if (t2 === "__BYE__") m.push([t1, "__BYE__"]); else m.push([t1, t2]); } rr = [rr[0], rr[n-1], ...rr.slice(1, n-1)]; } setRoundMatches(m); setMatchIdx(0); setMatchActive(false); setRoundDone(false); setCurRoundData([]); addLog(`${m.filter(x => !x.includes("__BYE__")).length} enfrentamientos generados — ${roundName}${hasBye ? " (1 pase libre)" : ""}`); }, [active, roundName, addLog]);
   const startMatch = useCallback(idx => { const match = roundMatches[idx]; if (match.includes("__BYE__")) { const byeTeam = match[0]; const byeIdx = teams.findIndex(t=>t.name===byeTeam); setCurRoundData(d=>[...d, {scores:[{name:byeTeam, score:teams[byeIdx]?.score||0, teamIdx:byeIdx, bye:true}]}]); addLog(`⏭ Pase libre: ${byeTeam}`); const next = idx + 1; if (next >= roundMatches.length) setRoundDone(true); else setMatchIdx(next); return; } setTeamsState(ts=>ts.map(t=>match.includes(t.name)?{...t, jokers:[false,false,false], pasoUsed:false, streak:0}:t)); setMatchActive(true); setCurQ(null); setShowAns(false); setSel({}); setResolved(false); setRunning(false); setTkey(k=>k+1); setExtraTime(0); setHiddenOptions(null); setActiveResponderTeamIdx(null); setShowWait(false); setShowTie(false); setProjectorClear(false); addLog(`Enfrentamiento ${idx+1}: ${match.join(" vs ")}`); }, [roundMatches, teams, addLog]);
   const endMatch = useCallback(() => { const matchIdxs = roundMatches[matchIdx].filter(n=>n!=="__BYE__").map(n=>teams.findIndex(t=>t.name===n)); const snapshot = matchIdxs.map(i=>({name:teams[i]?.name, score:teams[i]?.score, teamIdx:i})); setCurRoundData(d=>[...d, {scores: snapshot}]); const next = matchIdx + 1; setMatchActive(false); if (next >= roundMatches.length) setRoundDone(true); else setMatchIdx(next); }, [roundMatches, matchIdx, teams]);
-  const elimLowest = useCallback((lowTeam) => { 
-    setHistory(h=>[...h, { roundName, matches: curRoundData, eliminated: lowTeam.name }]); 
-    setTeamsState(prevTeams => {
-      const updatedTeams = prevTeams.map(t => t.name === lowTeam.name ? {...t, eliminated: true} : t);
-      return updatedTeams;
-    });
-    addLog(`❌ ${lowTeam.name} eliminado con ${lowTeam.score.toLocaleString()} pts`); 
-    AudioEngine.wrong(); 
-    const rem = active.length - 1; 
-    const newRound = getRoundName(rem); 
-    setRoundName(newRound); 
-    setRoundDone(false); 
-    setRoundMatches([]); 
-    setMatchIdx(0); 
-    setCurRoundData([]);
-    if (active.length - 1 > 1) setShowWait(true);
-    else setShowWait(false);
-  }, [curRoundData, roundName, active, getRoundName, addLog]);
+  const elimLowest = useCallback((lowTeam) => { setHistory(h=>[...h, { roundName, matches: curRoundData, eliminated: lowTeam.name }]); setTeamsState(prevTeams => { const updatedTeams = prevTeams.map(t => t.name === lowTeam.name ? {...t, eliminated: true} : t); return updatedTeams; }); addLog(`❌ ${lowTeam.name} eliminado con ${lowTeam.score.toLocaleString()} pts`); AudioEngine.wrong(); const rem = active.length - 1; const newRound = getRoundName(rem); setRoundName(newRound); setRoundDone(false); setRoundMatches([]); setMatchIdx(0); setCurRoundData([]); if (active.length - 1 > 1) setShowWait(true); else setShowWait(false); }, [curRoundData, roundName, active, getRoundName, addLog]);
   const selectQ = useCallback(q => { const mq = migrateQuestion(q); setCurQ(mq); setShowAns(false); setResolved(false); setSel({}); setRunning(false); setTkey(k=>k+1); setExtraTime(0); setHiddenOptions(null); setActiveResponderTeamIdx(null); if (getQType(mq).answerIsLetter === false || mq.stage !== 1) setResponseMode("all"); }, []);
   const addToHistory = useCallback((teamName, question, points, correct, stage) => { const entry = { id: Date.now(), teamName, questionText: question.text, points, correct, stage, timestamp: Date.now(), bye: false }; setQuestionHistory(prev => [...prev, entry]); saveQuestionHistoryToDB(entry); }, []);
-  const useComodin = useCallback((teamIdx, comodinIdx) => { 
-    const team = mTeams[teamIdx]; if (!team || team.jokers[comodinIdx]) return; 
-    const ri = mIdxs[teamIdx]; 
-    setTeamsState(prev => prev.map((t,i)=> i===ri ? {...t, jokers: t.jokers.map((j,idx)=> idx===comodinIdx ? true : j)} : t)); 
-    addLog(`${team.name} usó comodín: ${comodinIdx===0 ? "50/50" : comodinIdx===1 ? "Capitán" : "Cambio"}`); AudioEngine.joker(); 
-    if (comodinIdx === 0 && getQType(curQ).hasOptions) { 
-      const correctLetter = curQ.answer; const allLetters = ["A","B","C","D"]; 
-      const incorrectIndices = allLetters.filter(l => l !== correctLetter).map(l => allLetters.indexOf(l)); 
-      const shuffled = [...incorrectIndices]; for (let i = shuffled.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]; } 
-      setHiddenOptions(shuffled.slice(0,2)); addLog(`50/50 activado: se ocultan 2 opciones`);
-    } else if (comodinIdx === 1 && running) { const newExtra = Math.min(extraTime + 5, stageConfig[curQ?.stage]?.time || 20); setExtraTime(newExtra); addLog(`Ayuda Capitán: +5 segundos (ahora ${newExtra}s extra)`);
-    } else if (comodinIdx === 2 && curQ && curQ.stage !== 3) { const posibles = questions.filter(q => q.stage === curQ.stage && q.level === curQ.level && q.id !== curQ.id && !usedIds.includes(q.id)); if (posibles.length) { const newQ = posibles[Math.floor(Math.random() * posibles.length)]; setCurQ(newQ); setShowAns(false); setResolved(false); setSel({}); setRunning(false); setTkey(k=>k+1); setExtraTime(0); setHiddenOptions(null); addLog(`Pregunta cambiada por: ${newQ.text.substring(0,50)}`); } else addLog(`No hay otra pregunta disponible`); }
-    sendUpdateToProjector();
-  }, [mTeams, mIdxs, curQ, running, extraTime, stageConfig, questions, usedIds, addLog]);
+  const useComodin = useCallback((teamIdx, comodinIdx) => { const team = mTeams[teamIdx]; if (!team || team.jokers[comodinIdx]) return; const ri = mIdxs[teamIdx]; setTeamsState(prev => prev.map((t,i)=> i===ri ? {...t, jokers: t.jokers.map((j,idx)=> idx===comodinIdx ? true : j)} : t)); addLog(`${team.name} usó comodín: ${comodinIdx===0 ? "50/50" : comodinIdx===1 ? "Capitán" : "Cambio"}`); AudioEngine.joker(); if (comodinIdx === 0 && getQType(curQ).hasOptions) { const correctLetter = curQ.answer; const allLetters = ["A","B","C","D"]; const incorrectIndices = allLetters.filter(l => l !== correctLetter).map(l => allLetters.indexOf(l)); const shuffled = [...incorrectIndices]; for (let i = shuffled.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]; } setHiddenOptions(shuffled.slice(0,2)); addLog(`50/50 activado: se ocultan 2 opciones`); } else if (comodinIdx === 1 && running) { const newExtra = Math.min(extraTime + 5, stageConfig[curQ?.stage]?.time || 20); setExtraTime(newExtra); addLog(`Ayuda Capitán: +5 segundos (ahora ${newExtra}s extra)`); } else if (comodinIdx === 2 && curQ && curQ.stage !== 3) { const posibles = questions.filter(q => q.stage === curQ.stage && q.level === curQ.level && q.id !== curQ.id && !usedIds.includes(q.id)); if (posibles.length) { const newQ = posibles[Math.floor(Math.random() * posibles.length)]; setCurQ(newQ); setShowAns(false); setResolved(false); setSel({}); setRunning(false); setTkey(k=>k+1); setExtraTime(0); setHiddenOptions(null); addLog(`Pregunta cambiada por: ${newQ.text.substring(0,50)}`); } else addLog(`No hay otra pregunta disponible`); } sendUpdateToProjector(); }, [mTeams, mIdxs, curQ, running, extraTime, stageConfig, questions, usedIds, addLog]);
   const getProjectorPayload = useCallback(() => ({ curQ, showAnswer: showAns, resolved, sel, remaining: tkey, running, teams: teams.map(t=>({name:t.name, score:t.score, eliminated:t.eliminated, streak:t.streak, avatar:t.avatar})), activeMatchTeams: mTeams, matchTeamIndices: mIdxs, hiddenOptions, extraTime, responseMode, activeResponderTeamIdx, showWait, roundName: showWait ? roundName : '', showTie, tiePhase: tieState.phase, tieWord: tieState.word, tieRunning: tieState.running, tieTkey: tieState.tkey, tieWinner: tieState.winner, tieTeams: tieState.teams, tieTeamIndexes: tieState.teamIndexes, projectorClear, stageConfig, waitConfig, questionHistory, winner }), [curQ, showAns, resolved, sel, tkey, running, teams, mTeams, mIdxs, hiddenOptions, extraTime, responseMode, activeResponderTeamIdx, showWait, roundName, showTie, tieState, projectorClear, stageConfig, waitConfig, questionHistory, winner]);
   const handleSelect = useCallback((action, ti) => { if (!curQ || resolved) return; if (["A","B","C","D",null].includes(action)) { if (ti !== undefined) setSel(s=>({...s,[ti]:action})); else setSel(s=>{const n={...s};mTeams.forEach((_,idx)=>{if(!n[idx])n[idx]=action;});return n;}); } }, [curQ, resolved, mTeams]);
-  
-  const revealAnswerManually = useCallback(() => {
-    if (!curQ) return;
-    if (!showAns && !resolved) {
-      setShowAns(true);
-      setResolved(true);
-      if (running) setRunning(false);
-      addLog(`Revelación manual de la respuesta correcta: ${curQ.answer}`);
-    }
-  }, [curQ, showAns, resolved, running, addLog]);
-  
-  const handleReveal = useCallback((mode, tiParam) => {
-    if (!curQ) return;
-    const cfg = stageConfig[curQ.stage];
-    if (getQType(curQ).hasOptions && mode !== "reveal") {
-      let shouldShowAnswer = false;
-      if (responseMode === "all") {
-        mTeams.forEach((t,ti)=>{ const ri=mIdxs[ti]; if(ri<0)return; const s=sel[ti];
-          if (mode === "timeout") {
-            if (s) { const ok=s===curQ.answer; const pts=ok?cfg.correct:cfg.incorrect; setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+pts, streak: ok ? (tt.streak||0)+1 : 0}:tt)); addLog(`${t.name}: ${pts>0?"+":""}${pts} pts (${ok?"✓":"✗ tiempo"}) → ${s}`); triggerAnim(ti, pts); if(ok) AudioEngine.correct(); else AudioEngine.wrong(); addToHistory(t.name, curQ, pts, ok, curQ.stage); }
-            else { setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+cfg.incorrect, streak:0}:tt)); addLog(`${t.name}: ${cfg.incorrect} pts (sin resp — tiempo agotado)`); triggerAnim(ti, cfg.incorrect); AudioEngine.wrong(); addToHistory(t.name, curQ, cfg.incorrect, false, curQ.stage); shouldShowAnswer = true; }
-          } else {
-            if (s) { const ok=s===curQ.answer; const pts=ok?cfg.correct:cfg.incorrect; setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+pts, streak: ok ? (tt.streak||0)+1 : 0}:tt)); addLog(`${t.name}: ${pts>0?"+":""}${pts} pts (${ok?"✓":"✗"}) → ${s}`); triggerAnim(ti, pts); if(ok) AudioEngine.correct(); else AudioEngine.wrong(); addToHistory(t.name, curQ, pts, ok, curQ.stage); }
-            else { addLog(`${t.name}: sin selección`); }
-          }
-        });
-        if (mode === "correct") AudioEngine.correct();
-        setResolved(true); setRunning(false);
-        if (shouldShowAnswer) setShowAns(true);
-      } else {
-        if (activeResponderTeamIdx === null) {
-          addLog("No se ha seleccionado equipo para responder. Usa 'Revelar respuesta' para ver la respuesta.");
-          setRunning(false);
-          return;
-        }
-        const ti = activeResponderTeamIdx;
-        const t = mTeams[ti]; const ri=mIdxs[ti]; const s=sel[ti];
-        if (mode === "timeout") {
-          if (s) { const ok=s===curQ.answer; const pts=ok?cfg.correct:cfg.incorrect; setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+pts, streak: ok ? (tt.streak||0)+1 : 0}:tt)); addLog(`${t.name}: ${pts>0?"+":""}${pts} pts (${ok?"✓":"✗ tiempo"}) → ${s}`); triggerAnim(ti, pts); if(ok) AudioEngine.correct(); else AudioEngine.wrong(); addToHistory(t.name, curQ, pts, ok, curQ.stage); }
-          else { setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+cfg.incorrect, streak:0}:tt)); addLog(`${t.name}: ${cfg.incorrect} pts (sin resp — tiempo agotado)`); triggerAnim(ti, cfg.incorrect); AudioEngine.wrong(); addToHistory(t.name, curQ, cfg.incorrect, false, curQ.stage); shouldShowAnswer = true; }
-        } else {
-          if (s) { const ok=s===curQ.answer; const pts=ok?cfg.correct:cfg.incorrect; setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+pts, streak: ok ? (tt.streak||0)+1 : 0}:tt)); addLog(`${t.name}: ${pts>0?"+":""}${pts} pts (${ok?"✓":"✗"}) → ${s}`); triggerAnim(ti, pts); if(ok) AudioEngine.correct(); else AudioEngine.wrong(); addToHistory(t.name, curQ, pts, ok, curQ.stage); }
-          else { addLog(`${t.name}: sin selección`); }
-        }
-        setResolved(true); setRunning(false);
-        if (shouldShowAnswer) setShowAns(true);
-      }
-    } else if (!getQType(curQ).hasOptions && mode === "reveal") { setShowAns(true); setRunning(false); }
-    else if (mode === "correct_manual") { const ti = tiParam; const ri=mIdxs[ti]; setTeamsState(ts=>ts.map((t,i)=>i===ri?{...t,score:t.score+cfg.correct, streak: (t.streak||0)+1}:t)); addLog(`${mTeams[ti]?.name}: +${cfg.correct} pts ✓`); triggerAnim(ti, cfg.correct); AudioEngine.correct(); addToHistory(mTeams[ti]?.name, curQ, cfg.correct, true, curQ.stage); }
-    else if (mode === "wrong_manual") { const ti = tiParam; const ri=mIdxs[ti]; setTeamsState(ts=>ts.map((t,i)=>i===ri?{...t,score:t.score+cfg.incorrect, streak:0}:t)); addLog(`${mTeams[ti]?.name}: ${cfg.incorrect} pts ✗`); triggerAnim(ti, cfg.incorrect); AudioEngine.wrong(); addToHistory(mTeams[ti]?.name, curQ, cfg.incorrect, false, curQ.stage); }
-    // No llamamos manualmente a sendUpdateToProjector aquí, lo hará el useEffect de sincronización
-  }, [curQ, stageConfig, responseMode, mTeams, mIdxs, sel, activeResponderTeamIdx, addLog, triggerAnim, addToHistory]);
-  
-  const timerEnd = useCallback(() => { 
-    setRunning(false); 
-    AudioEngine.timeout(); 
-    if (curQ && !resolved) {
-      if (getQType(curQ).hasOptions) {
-        if (responseMode === "single" && activeResponderTeamIdx === null) {
-          setShowAns(true);
-          setResolved(true);
-          addLog("Tiempo agotado — sin equipo asignado, se revela la respuesta.");
-        } else {
-          handleReveal("timeout");
-        }
-      }
-    }
-  }, [curQ, resolved, responseMode, activeResponderTeamIdx, handleReveal, addLog]);
-  
+  const revealAnswerManually = useCallback(() => { if (!curQ) return; if (!showAns && !resolved) { setShowAns(true); setResolved(true); if (running) setRunning(false); addLog(`Revelación manual de la respuesta correcta: ${curQ.answer}`); } }, [curQ, showAns, resolved, running, addLog]);
+  const handleReveal = useCallback((mode, tiParam) => { if (!curQ) return; const cfg = stageConfig[curQ.stage]; if (getQType(curQ).hasOptions && mode !== "reveal") { let shouldShowAnswer = false; if (responseMode === "all") { mTeams.forEach((t,ti)=>{ const ri=mIdxs[ti]; if(ri<0)return; const s=sel[ti]; if (mode === "timeout") { if (s) { const ok=s===curQ.answer; const pts=ok?cfg.correct:cfg.incorrect; setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+pts, streak: ok ? (tt.streak||0)+1 : 0}:tt)); addLog(`${t.name}: ${pts>0?"+":""}${pts} pts (${ok?"✓":"✗ tiempo"}) → ${s}`); triggerAnim(ti, pts); if(ok) AudioEngine.correct(); else AudioEngine.wrong(); addToHistory(t.name, curQ, pts, ok, curQ.stage); } else { setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+cfg.incorrect, streak:0}:tt)); addLog(`${t.name}: ${cfg.incorrect} pts (sin resp — tiempo agotado)`); triggerAnim(ti, cfg.incorrect); AudioEngine.wrong(); addToHistory(t.name, curQ, cfg.incorrect, false, curQ.stage); shouldShowAnswer = true; } } else { if (s) { const ok=s===curQ.answer; const pts=ok?cfg.correct:cfg.incorrect; setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+pts, streak: ok ? (tt.streak||0)+1 : 0}:tt)); addLog(`${t.name}: ${pts>0?"+":""}${pts} pts (${ok?"✓":"✗"}) → ${s}`); triggerAnim(ti, pts); if(ok) AudioEngine.correct(); else AudioEngine.wrong(); addToHistory(t.name, curQ, pts, ok, curQ.stage); } else { addLog(`${t.name}: sin selección`); } } }); if (mode === "correct") AudioEngine.correct(); setResolved(true); setRunning(false); if (shouldShowAnswer) setShowAns(true); } else { if (activeResponderTeamIdx === null) { addLog("No se ha seleccionado equipo para responder. Usa 'Revelar respuesta' para ver la respuesta."); setRunning(false); return; } const ti = activeResponderTeamIdx; const t = mTeams[ti]; const ri=mIdxs[ti]; const s=sel[ti]; if (mode === "timeout") { if (s) { const ok=s===curQ.answer; const pts=ok?cfg.correct:cfg.incorrect; setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+pts, streak: ok ? (tt.streak||0)+1 : 0}:tt)); addLog(`${t.name}: ${pts>0?"+":""}${pts} pts (${ok?"✓":"✗ tiempo"}) → ${s}`); triggerAnim(ti, pts); if(ok) AudioEngine.correct(); else AudioEngine.wrong(); addToHistory(t.name, curQ, pts, ok, curQ.stage); } else { setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+cfg.incorrect, streak:0}:tt)); addLog(`${t.name}: ${cfg.incorrect} pts (sin resp — tiempo agotado)`); triggerAnim(ti, cfg.incorrect); AudioEngine.wrong(); addToHistory(t.name, curQ, cfg.incorrect, false, curQ.stage); shouldShowAnswer = true; } } else { if (s) { const ok=s===curQ.answer; const pts=ok?cfg.correct:cfg.incorrect; setTeamsState(ts=>ts.map((tt,i)=>i===ri?{...tt,score:tt.score+pts, streak: ok ? (tt.streak||0)+1 : 0}:tt)); addLog(`${t.name}: ${pts>0?"+":""}${pts} pts (${ok?"✓":"✗"}) → ${s}`); triggerAnim(ti, pts); if(ok) AudioEngine.correct(); else AudioEngine.wrong(); addToHistory(t.name, curQ, pts, ok, curQ.stage); } else { addLog(`${t.name}: sin selección`); } } setResolved(true); setRunning(false); if (shouldShowAnswer) setShowAns(true); } } else if (!getQType(curQ).hasOptions && mode === "reveal") { setShowAns(true); setRunning(false); } else if (mode === "correct_manual") { const ti = tiParam; const ri=mIdxs[ti]; setTeamsState(ts=>ts.map((t,i)=>i===ri?{...t,score:t.score+cfg.correct, streak: (t.streak||0)+1}:t)); addLog(`${mTeams[ti]?.name}: +${cfg.correct} pts ✓`); triggerAnim(ti, cfg.correct); AudioEngine.correct(); addToHistory(mTeams[ti]?.name, curQ, cfg.correct, true, curQ.stage); } else if (mode === "wrong_manual") { const ti = tiParam; const ri=mIdxs[ti]; setTeamsState(ts=>ts.map((t,i)=>i===ri?{...t,score:t.score+cfg.incorrect, streak:0}:t)); addLog(`${mTeams[ti]?.name}: ${cfg.incorrect} pts ✗`); triggerAnim(ti, cfg.incorrect); AudioEngine.wrong(); addToHistory(mTeams[ti]?.name, curQ, cfg.incorrect, false, curQ.stage); } }, [curQ, stageConfig, responseMode, mTeams, mIdxs, sel, activeResponderTeamIdx, addLog, triggerAnim, addToHistory]);
+  const timerEnd = useCallback(() => { setRunning(false); AudioEngine.timeout(); if (curQ && !resolved) { if (getQType(curQ).hasOptions) { if (responseMode === "single" && activeResponderTeamIdx === null) { setShowAns(true); setResolved(true); addLog("Tiempo agotado — sin equipo asignado, se revela la respuesta."); } else { handleReveal("timeout"); } } } }, [curQ, resolved, responseMode, activeResponderTeamIdx, handleReveal, addLog]);
   const startTimer = useCallback(() => setRunning(true), []);
   const pauseTimer = useCallback(() => setRunning(false), []);
   const resetTimer = useCallback(() => { setRunning(false); setTkey(k=>k+1); setExtraTime(0); }, []);
@@ -1372,24 +963,9 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
   const clearProjector = useCallback(() => { setProjectorClear(true); addLog("🌙 Proyector ocultado (pantalla de transición)"); }, [addLog]);
   const showProjector = useCallback(() => { setProjectorClear(false); addLog("☀️ Proyector restaurado"); }, [addLog]);
   const debugChannelRef = useRef(null);
-  useEffect(() => {
-    try { debugChannelRef.current = new BroadcastChannel('dilo_debugger'); } catch(e) {}
-    return () => { try { debugChannelRef.current?.close(); } catch(e) {} };
-  }, []);
-
-  const sendUpdateToProjector = useCallback(() => { 
-    const payload = getProjectorPayload();
-    if (projectorWindow && !projectorWindow.closed) {
-      projectorWindow.postMessage({ type: 'PROJECTOR_UPDATE', payload }, '*');
-    } else if (projectorWindow) {
-      setProjectorActive(false);
-    }
-    try { debugChannelRef.current?.postMessage({ type: 'PROJECTOR_UPDATE', payload }); } catch(e) {}
-  }, [projectorWindow, getProjectorPayload]);
-  // Efecto para sincronizar el proyector cada vez que cambian los estados relevantes
-  // IMPORTANTE: tieState se descompone en primitivos para evitar loop infinito (objeto nuevo en cada render)
-  useEffect(() => { sendUpdateToProjector(); }, [sendUpdateToProjector, curQ, showAns, resolved, sel, tkey, running, teams, mTeams, mIdxs, hiddenOptions, extraTime, responseMode, activeResponderTeamIdx, showWait, roundName, showTie, projectorClear, stageConfig, waitConfig, questionHistory, winner,
-    tieState.phase, tieState.word, tieState.running, tieState.tkey, tieState.winner]);
+  useEffect(() => { try { debugChannelRef.current = new BroadcastChannel('dilo_debugger'); } catch(e) {} return () => { try { debugChannelRef.current?.close(); } catch(e) {} }; }, []);
+  const sendUpdateToProjector = useCallback(() => { const payload = getProjectorPayload(); if (projectorWindow && !projectorWindow.closed) { projectorWindow.postMessage({ type: 'PROJECTOR_UPDATE', payload }, '*'); } else if (projectorWindow) { setProjectorActive(false); } try { debugChannelRef.current?.postMessage({ type: 'PROJECTOR_UPDATE', payload }); } catch(e) {} }, [projectorWindow, getProjectorPayload]);
+  useEffect(() => { sendUpdateToProjector(); }, [sendUpdateToProjector, curQ, showAns, resolved, sel, tkey, running, teams, mTeams, mIdxs, hiddenOptions, extraTime, responseMode, activeResponderTeamIdx, showWait, roundName, showTie, projectorClear, stageConfig, waitConfig, questionHistory, winner, tieState.phase, tieState.word, tieState.running, tieState.tkey, tieState.winner]);
   const openProjector = useCallback(() => { if (projectorWindow && !projectorWindow.closed) { projectorWindow.focus(); return; } const newWin = window.open(window.location.href + '?projector=1', 'Projector', 'width=1280,height=720,resizable=yes,scrollbars=no,toolbar=no,menubar=no'); if (newWin) { setProjectorWindow(newWin); setProjectorActive(true); const interval = setInterval(() => { if (newWin.closed) { setProjectorActive(false); setProjectorWindow(null); clearInterval(interval); } }, 500); setTimeout(() => sendUpdateToProjector(), 200); } else alert("Permite ventanas emergentes."); }, [projectorWindow, sendUpdateToProjector]);
   const manualSave = useCallback(() => { persistGameState(); addLog("💾 Partida guardada manualmente"); }, [persistGameState, addLog]);
   const newGame = useCallback(() => { if (confirm("¿Nueva partida? Se perderá el progreso.")) { localStorage.removeItem(gameStateKey); window.location.reload(); } }, [gameStateKey]);
@@ -1401,115 +977,11 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
   useEffect(() => { const channel = new BroadcastChannel('dilocontrol'); const handler = (e) => { if (e.data && e.data.command) voiceCommandHandler(e.data.command); }; channel.onmessage = handler; return () => { channel.close(); }; }, [voiceCommandHandler]);
   useEffect(() => { const loadHistory = async () => { const saved = await loadQuestionHistoryFromDB(); setQuestionHistory(saved); }; loadHistory(); }, []);
   
-  const renderQCard = useMemo(() => {
-    if (!curQ) return null;
-    const qTypeDef = getQType(curQ);
-    const isS1 = qTypeDef.hasOptions;
-    const cfg = stageConfig[curQ.stage];
-    const typeLabel = qTypeDef.icon + " " + qTypeDef.label;
-    return ( <div className="slide-up" style={{ background: C.surfaceContainer, border: `1px solid ${cfg.color}60`, borderRadius: 24, padding: 16, backdropFilter: "blur(8px)" }}>
-      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12}}>
-        <div style={{display:"flex", gap:8}}><span style={{ background: `${cfg.color}20`, color: cfg.color, fontSize:9, borderRadius:40, padding:"2px 10px", fontFamily:"'JetBrains Mono', monospace" }}>{typeLabel}</span><span style={{ background: C.outlineVariant, color: C.onSurfaceVariant, fontSize:9, borderRadius:40, padding:"2px 10px" }}>Nivel {curQ.level}</span></div>
-        {isS1 && <button onClick={toggleResponseMode} style={{ background: responseMode === "all" ? C.secondary : C.tertiary, color: C.onSecondary, border:"none", borderRadius:40, padding:"2px 12px", fontSize:10, fontWeight:700, cursor:"pointer" }}>{responseMode === "all" ? "👥 Todos responden" : "🎯 Un equipo responde"}</button>}
-      </div>
-      <div style={{ fontSize: 14, lineHeight: 1.5, marginBottom: 16, fontWeight: 500 }}>{curQ.text}</div>
-      {isS1 && curQ.options && ( <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap: 10, marginBottom: 16}}>{curQ.options.map((opt,i)=>{ const letter=["A","B","C","D"][i]; const isOk=letter===curQ.answer; const hidden = hiddenOptions && hiddenOptions.includes(i); if (hidden) return null; const bg = resolved ? (isOk ? `${C.primary}20` : (sel && Object.values(sel).includes(letter) ? `${C.error}20` : "rgba(255,255,255,0.03)")) : "rgba(255,255,255,0.03)"; const bc = resolved ? (isOk ? C.primary : (sel && Object.values(sel).includes(letter) ? C.error : C.outlineVariant)) : C.outlineVariant; return( <div key={i} className="option-fade-in" style={{ animationDelay: `${i * 0.07}s`, background: bg, border: `1px solid ${bc}`, borderRadius: 16, padding:"10px 12px", display:"flex", alignItems:"center", gap: 10 }}><span style={{ width: 28, height: 28, borderRadius: "50%", background: resolved && isOk ? C.primary : "rgba(255,255,255,0.1)", display:"flex", alignItems:"center", justifyContent:"center", fontSize: 12, fontWeight: 800 }}>{letter}</span><span style={{ fontSize: 12, flex:1 }}>{opt}</span>{resolved && isOk && <span>✓</span>}</div> ); })}</div> )}
-      {isS1 && !resolved && ( <>
-        {responseMode === "single" && (<div style={{ marginBottom: 12, display:"flex", gap:8, flexWrap:"wrap" }}>{mTeams.map((t,idx)=> <button key={idx} onClick={()=>setResponder(idx)} style={{ background: activeResponderTeamIdx === idx ? C.primary : C.surfaceContainerHigh, color: activeResponderTeamIdx === idx ? C.onPrimary : C.onSurface, border: `2px solid ${activeResponderTeamIdx === idx ? C.primary : C.outlineVariant}`, borderRadius: 40, padding:"4px 16px", fontSize:11, fontWeight:600, cursor:"pointer" }}>{t.name}</button> )}</div>)}
-        <div style={{marginBottom:12}}><div style={{fontSize:9, color:C.outline, letterSpacing:1, marginBottom:6}}>SELECCIÓN POR EQUIPO</div>{mTeams.map((t,ti)=>{ const globalIdx = mIdxs[ti]; const col=TC[globalIdx % TC.length]; const teamLetter = getTeamLetter(globalIdx); const isActive = (responseMode === "single" && activeResponderTeamIdx !== ti); if (responseMode === "single" && activeResponderTeamIdx !== ti) return null; return( <div key={ti} style={{display:"flex", alignItems:"center", gap:8, marginBottom:6}}><div style={{width:22, height:22, borderRadius:"50%", background:`${col}30`, border:`2px solid ${col}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:800, color:col}}>{teamLetter}</div><span style={{fontSize:11, color:col, fontWeight:600, minWidth:60}}>{t.name}</span>{["A","B","C","D"].map(l=>{ const optVisible = !hiddenOptions || !hiddenOptions.includes(["A","B","C","D"].indexOf(l)); if (!optVisible) return <div key={l} style={{width:28,height:28}}/>; return( <button key={l} onClick={()=>handleSelect(l,ti)} style={{ width:28, height:28, borderRadius:"50%", border: `2px solid ${sel?.[ti]===l ? col : C.outlineVariant}`, background: sel?.[ti]===l ? `${col}30` : "transparent", color: sel?.[ti]===l ? col : C.outline, fontSize:10, fontWeight:700, cursor:"pointer" }}>{l}</button> ); })}{sel?.[ti] && <button onClick={()=>handleSelect(null,ti)} style={{width:22,height:22, borderRadius:"50%", border:`1px solid ${C.outlineVariant}`, background:"transparent", color:C.outline, fontSize:9, cursor:"pointer"}}>✕</button>}</div> ); })}</div>
-        <div style={{display:"flex", gap:10, marginBottom:12}}>
-          <button onClick={()=>handleReveal("correct")} style={{flex:1, background: `${C.primary}20`, color: C.primary, border: `1px solid ${C.primary}`, borderRadius:40, padding:"8px", fontSize:11, fontWeight:700, cursor:"pointer"}}>✓ Confirmar respuesta(s)</button>
-          <button onClick={()=>handleReveal("timeout")} style={{flex:1, background: `${C.error}20`, color: C.error, border: `1px solid ${C.error}`, borderRadius:40, padding:"8px", fontSize:11, fontWeight:700, cursor:"pointer"}}>⏱ Tiempo agotado</button>
-          <button onClick={revealAnswerManually} style={{flex:1, background: `${C.warn}20`, color: C.warn, border: `1px solid ${C.warn}`, borderRadius:40, padding:"8px", fontSize:11, fontWeight:700, cursor:"pointer"}}>🔍 Revelar respuesta</button>
-        </div>
-      </> )}
-      {resolved && isS1 && ( <div className="pop-in" style={{ background: `${C.primary}20`, border: `1px solid ${C.primary}`, borderRadius: 16, padding:"10px", marginBottom:12}}><div style={{fontSize:9, color:C.primary, letterSpacing:1}}>RESPUESTA CORRECTA</div><div style={{fontSize:12, fontWeight:600}}>{curQ.answer} — {curQ.options[["A","B","C","D"].indexOf(curQ.answer)]}</div></div> )}
-      {!isS1 && ( <> {showAns && ( <div className="pop-in" style={{ background: `${C.primary}20`, border: `1px solid ${C.primary}`, borderRadius: 16, padding:"10px", marginBottom:12}}><div style={{fontSize:9, color:C.primary}}>RESPUESTA CORRECTA</div><div style={{fontSize:13, fontWeight:500}}>{curQ.answer}</div></div> )} {!showAns && <button onClick={()=>handleReveal("reveal")} style={{ width:"100%", background: C.secondary, color: C.onSecondary, border:"none", borderRadius:40, padding:"8px", fontSize:12, fontWeight:700, cursor:"pointer", marginBottom:12 }}>Revelar Respuesta</button>} {showAns && ( <div><div style={{fontSize:9, color:C.outline, letterSpacing:1, marginBottom:5}}>ASIGNAR PUNTAJE</div>{mTeams.map((t,ti)=>{ const globalIdx = mIdxs[ti]; const col=TC[globalIdx % TC.length]; const teamLetter = getTeamLetter(globalIdx); return( <div key={ti} style={{display:"flex", alignItems:"center", gap:8, marginBottom:6}}><div style={{width:22,height:22, borderRadius:"50%", background:`${col}30`, border:`2px solid ${col}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:800, color:col}}>{teamLetter}</div><span style={{fontSize:11, color:col, fontWeight:600, flex:1}}>{t.name}</span><button onClick={()=>handleReveal("correct_manual",ti)} style={{ background: `${C.primary}20`, color: C.primary, border:`1px solid ${C.primary}`, borderRadius:40, padding:"3px 12px", fontSize:10, fontWeight:700, cursor:"pointer" }}>✓</button><button onClick={()=>handleReveal("wrong_manual",ti)} style={{ background: `${C.error}20`, color: C.error, border:`1px solid ${C.error}`, borderRadius:40, padding:"3px 12px", fontSize:10, fontWeight:700, cursor:"pointer" }}>✗</button></div> ); })}</div> )} </> )}
-    </div> );
-  }, [curQ, stageConfig, responseMode, toggleResponseMode, hiddenOptions, resolved, sel, mTeams, mIdxs, activeResponderTeamIdx, handleSelect, handleReveal, showAns, getTeamLetter, revealAnswerManually]);
+  const renderQCard = useMemo(() => { if (!curQ) return null; const qTypeDef = getQType(curQ); const isS1 = qTypeDef.hasOptions; const cfg = stageConfig[curQ.stage]; const typeLabel = qTypeDef.icon + " " + qTypeDef.label; return ( <div className="slide-up" style={{ background: C.surfaceContainer, border: `1px solid ${cfg.color}60`, borderRadius: 24, padding: 16, backdropFilter: "blur(8px)" }}> <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12}}> <div style={{display:"flex", gap:8}}><span style={{ background: `${cfg.color}20`, color: cfg.color, fontSize:9, borderRadius:40, padding:"2px 10px", fontFamily:"'JetBrains Mono', monospace" }}>{typeLabel}</span><span style={{ background: C.outlineVariant, color: C.onSurfaceVariant, fontSize:9, borderRadius:40, padding:"2px 10px" }}>Nivel {curQ.level}</span></div> {isS1 && <button onClick={toggleResponseMode} style={{ background: responseMode === "all" ? C.secondary : C.tertiary, color: C.onSecondary, border:"none", borderRadius:40, padding:"2px 12px", fontSize:10, fontWeight:700, cursor:"pointer" }}>{responseMode === "all" ? "👥 Todos responden" : "🎯 Un equipo responde"}</button>} </div> <div style={{ fontSize: 14, lineHeight: 1.5, marginBottom: 16, fontWeight: 500 }}>{curQ.text}</div> {isS1 && curQ.options && ( <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap: 10, marginBottom: 16}}>{curQ.options.map((opt,i)=>{ const letter=["A","B","C","D"][i]; const isOk=letter===curQ.answer; const hidden = hiddenOptions && hiddenOptions.includes(i); if (hidden) return null; const bg = resolved ? (isOk ? `${C.primary}20` : (sel && Object.values(sel).includes(letter) ? `${C.error}20` : "rgba(255,255,255,0.03)")) : "rgba(255,255,255,0.03)"; const bc = resolved ? (isOk ? C.primary : (sel && Object.values(sel).includes(letter) ? C.error : C.outlineVariant)) : C.outlineVariant; return( <div key={i} className="option-fade-in" style={{ animationDelay: `${i * 0.07}s`, background: bg, border: `1px solid ${bc}`, borderRadius: 16, padding:"10px 12px", display:"flex", alignItems:"center", gap: 10 }}><span style={{ width: 28, height: 28, borderRadius: "50%", background: resolved && isOk ? C.primary : "rgba(255,255,255,0.1)", display:"flex", alignItems:"center", justifyContent:"center", fontSize: 12, fontWeight: 800 }}>{letter}</span><span style={{ fontSize: 12, flex:1 }}>{opt}</span>{resolved && isOk && <span>✓</span>}</div> ); })}</div> )} {isS1 && !resolved && ( <> {responseMode === "single" && (<div style={{ marginBottom: 12, display:"flex", gap:8, flexWrap:"wrap" }}>{mTeams.map((t,idx)=> <button key={idx} onClick={()=>setResponder(idx)} style={{ background: activeResponderTeamIdx === idx ? C.primary : C.surfaceContainerHigh, color: activeResponderTeamIdx === idx ? C.onPrimary : C.onSurface, border: `2px solid ${activeResponderTeamIdx === idx ? C.primary : C.outlineVariant}`, borderRadius: 40, padding:"4px 16px", fontSize:11, fontWeight:600, cursor:"pointer" }}>{t.name}</button> )}</div>)} <div style={{marginBottom:12}}><div style={{fontSize:9, color:C.outline, letterSpacing:1, marginBottom:6}}>SELECCIÓN POR EQUIPO</div>{mTeams.map((t,ti)=>{ const globalIdx = mIdxs[ti]; const col=TC[globalIdx % TC.length]; const teamLetter = getTeamLetter(globalIdx); const isActive = (responseMode === "single" && activeResponderTeamIdx !== ti); if (responseMode === "single" && activeResponderTeamIdx !== ti) return null; return( <div key={ti} style={{display:"flex", alignItems:"center", gap:8, marginBottom:6}}><div style={{width:22, height:22, borderRadius:"50%", background:`${col}30`, border:`2px solid ${col}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:800, color:col}}>{teamLetter}</div><span style={{fontSize:11, color:col, fontWeight:600, minWidth:60}}>{t.name}</span>{["A","B","C","D"].map(l=>{ const optVisible = !hiddenOptions || !hiddenOptions.includes(["A","B","C","D"].indexOf(l)); if (!optVisible) return <div key={l} style={{width:28,height:28}}/>; return( <button key={l} onClick={()=>handleSelect(l,ti)} style={{ width:28, height:28, borderRadius:"50%", border: `2px solid ${sel?.[ti]===l ? col : C.outlineVariant}`, background: sel?.[ti]===l ? `${col}30` : "transparent", color: sel?.[ti]===l ? col : C.outline, fontSize:10, fontWeight:700, cursor:"pointer" }}>{l}</button> ); })}{sel?.[ti] && <button onClick={()=>handleSelect(null,ti)} style={{width:22,height:22, borderRadius:"50%", border:`1px solid ${C.outlineVariant}`, background:"transparent", color:C.outline, fontSize:9, cursor:"pointer"}}>✕</button>}</div> ); })}</div> <div style={{display:"flex", gap:10, marginBottom:12}}> <button onClick={()=>handleReveal("correct")} style={{flex:1, background: `${C.primary}20`, color: C.primary, border: `1px solid ${C.primary}`, borderRadius:40, padding:"8px", fontSize:11, fontWeight:700, cursor:"pointer"}}>✓ Confirmar respuesta(s)</button> <button onClick={()=>handleReveal("timeout")} style={{flex:1, background: `${C.error}20`, color: C.error, border: `1px solid ${C.error}`, borderRadius:40, padding:"8px", fontSize:11, fontWeight:700, cursor:"pointer"}}>⏱ Tiempo agotado</button> <button onClick={revealAnswerManually} style={{flex:1, background: `${C.warn}20`, color: C.warn, border: `1px solid ${C.warn}`, borderRadius:40, padding:"8px", fontSize:11, fontWeight:700, cursor:"pointer"}}>🔍 Revelar respuesta</button> </div> </> )} {resolved && isS1 && ( <div className="pop-in" style={{ background: `${C.primary}20`, border: `1px solid ${C.primary}`, borderRadius: 16, padding:"10px", marginBottom:12}}><div style={{fontSize:9, color:C.primary, letterSpacing:1}}>RESPUESTA CORRECTA</div><div style={{fontSize:12, fontWeight:600}}>{curQ.answer} — {curQ.options[["A","B","C","D"].indexOf(curQ.answer)]}</div></div> )} {!isS1 && ( <> {showAns && ( <div className="pop-in" style={{ background: `${C.primary}20`, border: `1px solid ${C.primary}`, borderRadius: 16, padding:"10px", marginBottom:12}}><div style={{fontSize:9, color:C.primary}}>RESPUESTA CORRECTA</div><div style={{fontSize:13, fontWeight:500}}>{curQ.answer}</div></div> )} {!showAns && <button onClick={()=>handleReveal("reveal")} style={{ width:"100%", background: C.secondary, color: C.onSecondary, border:"none", borderRadius:40, padding:"8px", fontSize:12, fontWeight:700, cursor:"pointer", marginBottom:12 }}>Revelar Respuesta</button>} {showAns && ( <div><div style={{fontSize:9, color:C.outline, letterSpacing:1, marginBottom:5}}>ASIGNAR PUNTAJE</div>{mTeams.map((t,ti)=>{ const globalIdx = mIdxs[ti]; const col=TC[globalIdx % TC.length]; const teamLetter = getTeamLetter(globalIdx); return( <div key={ti} style={{display:"flex", alignItems:"center", gap:8, marginBottom:6}}><div style={{width:22,height:22, borderRadius:"50%", background:`${col}30`, border:`2px solid ${col}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9, fontWeight:800, color:col}}>{teamLetter}</div><span style={{fontSize:11, color:col, fontWeight:600, flex:1}}>{t.name}</span><button onClick={()=>handleReveal("correct_manual",ti)} style={{ background: `${C.primary}20`, color: C.primary, border:`1px solid ${C.primary}`, borderRadius:40, padding:"3px 12px", fontSize:10, fontWeight:700, cursor:"pointer" }}>✓</button><button onClick={()=>handleReveal("wrong_manual",ti)} style={{ background: `${C.error}20`, color: C.error, border:`1px solid ${C.error}`, borderRadius:40, padding:"3px 12px", fontSize:10, fontWeight:700, cursor:"pointer" }}>✗</button></div> ); })}</div> )} </> )} </div> ); }, [curQ, stageConfig, responseMode, toggleResponseMode, hiddenOptions, resolved, sel, mTeams, mIdxs, activeResponderTeamIdx, handleSelect, handleReveal, showAns, getTeamLetter, revealAnswerManually]);
 
-  const WinnerModal = ({ winner, onClose, onExport }) => {
-    useEffect(() => {
-      if (winner && typeof canvasConfetti !== 'undefined') {
-        canvasConfetti({ particleCount: 200, spread: 100, origin: { y: 0.6 }, startVelocity: 20, colors: ['#ffc063', '#97df5c', '#7fd0ff'] });
-        canvasConfetti({ particleCount: 150, spread: 120, origin: { y: 0.7, x: 0.2 }, startVelocity: 25 });
-        canvasConfetti({ particleCount: 150, spread: 120, origin: { y: 0.7, x: 0.8 }, startVelocity: 25 });
-      }
-    }, [winner]);
-    return (
-      <div className="winner-modal">
-        <div className="winner-card">
-          <div style={{ fontSize: 60 }}>{winner.avatar || "🏆"}</div>
-          <div style={{ fontSize: 28, fontWeight: 800, marginTop: 16, color: C.tertiary }}>¡CAMPEÓN!</div>
-          <div style={{ fontSize: 48, fontWeight: 900, margin: 16, color: C.primary }}>{winner.name}</div>
-          <div style={{ fontSize: 20, marginBottom: 24 }}>Puntaje final: {winner.score.toLocaleString()} pts</div>
-          <div style={{ display: 'flex', gap: 16, justifyContent: 'center' }}>
-            <button onClick={() => { onExport(); onClose(); }} style={{ background: C.primary, color: C.onPrimary, border: 'none', borderRadius: 40, padding: '10px 24px', fontWeight: 700, cursor: 'pointer' }}>📊 Ver resultados</button>
-            <button onClick={() => { onClose(); window.location.reload(); }} style={{ background: 'transparent', border: `1px solid ${C.outlineVariant}`, color: C.outline, borderRadius: 40, padding: '10px 24px', cursor: 'pointer' }}>🔄 Nueva partida</button>
-          </div>
-        </div>
-      </div>
-    );
-  };
+  const WinnerModal = ({ winner, onClose, onExport }) => { useEffect(() => { if (winner && typeof canvasConfetti !== 'undefined') { canvasConfetti({ particleCount: 200, spread: 100, origin: { y: 0.6 }, startVelocity: 20, colors: ['#ffc063', '#97df5c', '#7fd0ff'] }); canvasConfetti({ particleCount: 150, spread: 120, origin: { y: 0.7, x: 0.2 }, startVelocity: 25 }); canvasConfetti({ particleCount: 150, spread: 120, origin: { y: 0.7, x: 0.8 }, startVelocity: 25 }); } }, [winner]); return ( <div className="winner-modal"> <div className="winner-card"> <div style={{ fontSize: 60 }}>{winner.avatar || "🏆"}</div> <div style={{ fontSize: 28, fontWeight: 800, marginTop: 16, color: C.tertiary }}>¡CAMPEÓN!</div> <div style={{ fontSize: 48, fontWeight: 900, margin: 16, color: C.primary }}>{winner.name}</div> <div style={{ fontSize: 20, marginBottom: 24 }}>Puntaje final: {winner.score.toLocaleString()} pts</div> <div style={{ display: 'flex', gap: 16, justifyContent: 'center' }}> <button onClick={() => { onExport(); onClose(); }} style={{ background: C.primary, color: C.onPrimary, border: 'none', borderRadius: 40, padding: '10px 24px', fontWeight: 700, cursor: 'pointer' }}>📊 Ver resultados</button> <button onClick={() => { onClose(); window.location.reload(); }} style={{ background: 'transparent', border: `1px solid ${C.outlineVariant}`, color: C.outline, borderRadius: 40, padding: '10px 24px', cursor: 'pointer' }}>🔄 Nueva partida</button> </div> </div> </div> ); };
 
-  return ( <>
-    {scoreAnims.map(a=>( <ScoreFloat key={a.id} value={a.pts} color={a.col} x={a.x} y={a.y} onDone={()=>removeAnim(a.id)}/> ))}
-    {winner && <WinnerModal winner={winner} onClose={() => setWinner(null)} onExport={exportResults} />}
-    {showWait && <WaitScreen roundName={roundName} teams={teams} onClose={()=>setShowWait(false)} waitConfig={waitConfig}/>}
-    {showTie && <TieBreaker teams={teams} teamIndexes={mIdxs.length?mIdxs:active.map((_,i)=>teams.findIndex(t=>t.name===active[i].name))} onClose={()=>{setShowTie(false);}} onAwardPoints={tieAward} addLog={addLog} onStateChange={setTieState}/>}
-    <div className="game-grid" style={{ display: "grid", gridTemplateColumns: "260px 1fr 300px", gap: 16, height: "100%", padding: "0 24px" }}>
-      <div style={{ display:"flex", flexDirection:"column", gap: 12, overflowY:"auto" }}> 
-        <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: 12, backdropFilter: "blur(4px)" }}> 
-          <div style={{ fontSize: 10, color: C.outline, letterSpacing: 1, marginBottom: 8 }}>FILTROS</div> 
-          <div style={{ display:"flex", gap: 6, marginBottom: 8 }}> {[0,1,2,3].map(s=>( <button key={s} onClick={()=>setFStage(s)} style={{ background: fStage===s ? C.primary : "transparent", color: fStage===s ? C.onPrimary : C.outline, border: `1px solid ${fStage===s ? C.primary : C.outlineVariant}`, borderRadius: 40, padding:"4px 12px", fontSize:10, cursor:"pointer" }}>{s===0?"Todas":`E${s}`}</button> ))} </div> 
-          <div style={{ display:"flex", gap: 6, marginBottom: 8 }}> {[0,1,2].map(l=>( <button key={l} onClick={()=>setFLevel(l)} style={{ background: fLevel===l ? C.secondary : "transparent", color: fLevel===l ? C.onSecondary : C.outline, border: `1px solid ${fLevel===l ? C.secondary : C.outlineVariant}`, borderRadius: 40, padding:"4px 12px", fontSize:10, cursor:"pointer" }}>{l===0?"Todos":`Nv${l}`}</button> ))} </div> 
-          <div style={{ fontSize: 9, color: C.outline, marginTop: 4 }}>{avail.length} disponibles · {usedIds.length} usadas</div> 
-          <button onClick={()=>setUsedIds([])} style={{ background: "transparent", color: C.tertiary, border: `1px solid ${C.tertiary}`, borderRadius: 40, padding:"4px 8px", fontSize:9, cursor:"pointer", marginTop:6 }}>↺ Reiniciar usadas</button> 
-        </div> 
-        <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: 12, flex:1, overflowY:"auto" }}> 
-          <div style={{ fontSize: 10, color: C.outline, letterSpacing: 1, marginBottom: 8 }}>BANCO</div> 
-          {avail.map(q=> <div key={q.id} onClick={()=>selectQ(q)} style={{ background: curQ?.id===q.id ? `${stageConfig[q.stage].color}20` : "rgba(255,255,255,0.02)", border: `1px solid ${curQ?.id===q.id ? stageConfig[q.stage].color : C.outlineVariant}`, borderRadius: 12, padding:"8px", marginBottom:6, cursor:"pointer" }}> <div style={{ display:"flex", gap: 6, marginBottom: 4 }}> <span style={{ background: `${stageConfig[q.stage].color}20`, color: stageConfig[q.stage].color, fontSize:8, borderRadius:40, padding:"2px 8px" }}>E{q.stage}</span> <span style={{ background: C.outlineVariant, fontSize:8, borderRadius:40, padding:"2px 8px" }}>Nv{q.level}</span> </div> <div style={{ fontSize: 11, lineHeight: 1.3 }}>{q.text.substring(0,50)}</div> </div> )} 
-        </div> 
-      </div>
-      <div style={{ display:"flex", flexDirection:"column", gap: 12, overflowY:"auto" }}> 
-        {curQ && ( <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: 12, display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, flexWrap:"wrap" }}> 
-          <Timer seconds={stageConfig[curQ.stage].time} running={running} onEnd={timerEnd} tkey={tkey} extraTime={extraTime}/> 
-          <div style={{ display:"flex", gap: 8 }}> 
-            {!running ? <button onClick={startTimer} style={{ background: C.primary, color: C.onPrimary, border:"none", borderRadius:40, padding:"6px 18px", fontSize:11, fontWeight:700, cursor:"pointer" }}>▶ Iniciar</button> : <button onClick={pauseTimer} style={{ background: C.tertiary, color: C.onTertiary, border:"none", borderRadius:40, padding:"6px 18px", fontSize:11, fontWeight:700, cursor:"pointer" }}>⏸ Pausar</button>}
-            <button onClick={resetTimer} style={{ background: "transparent", color: C.outline, border: `1px solid ${C.outlineVariant}`, borderRadius:40, padding:"6px 12px", fontSize:11, cursor:"pointer" }}>↺ Reset</button>
-            <button onClick={()=>{ if(curQ) setUsedIds(ids=>[...ids,curQ.id]); addLog("Pregunta marcada como usada"); }} style={{ background: "transparent", color: C.secondary, border: `1px solid ${C.secondary}`, borderRadius:40, padding:"6px 12px", fontSize:10, cursor:"pointer" }}>✓ Usada</button>
-          </div> 
-        </div> )}
-        {renderQCard} 
-        {matchActive && mTeams.length > 0 && ( <div> <MatchBoard activeTeams={mTeams} teamIndexes={mIdxs} setTeams={setTeamsState} addLog={addLog} teamCardRefs={teamCardRefs} onPaso={()=>{ setCurQ(null); setShowAns(false); setSel({}); setResolved(false); setRunning(false); setTkey(k=>k+1); setExtraTime(0); setHiddenOptions(null); setActiveResponderTeamIdx(null); }} onScoreAnim={triggerAnim} onUseComodin={useComodin} responseMode={responseMode} activeResponderTeamIdx={activeResponderTeamIdx}/> <button onClick={endMatch} style={{ background: `${C.error}20`, color: C.error, border: `1px solid ${C.error}`, borderRadius: 40, padding:"8px", fontSize:12, fontWeight:700, cursor:"pointer", width:"100%", marginTop:12 }}>Terminar enfrentamiento →</button> </div> )} 
-        <div style={{ display:"flex", gap: 12, alignItems:"center", flexWrap:"wrap" }}> 
-          <button onClick={openProjector} style={{ flex:1, background: projectorActive ? `${C.error}20` : `${C.secondary}20`, border: `1px solid ${projectorActive ? C.error : C.secondary}`, color: projectorActive ? C.error : C.secondary, borderRadius: 40, padding:"8px", fontSize:12, fontWeight:700, cursor:"pointer" }}>{projectorActive ? "✕ Cerrar proyector" : "⛶ Abrir proyector"}</button> 
-          <button onClick={manualSave} style={{ flex:1, background: `${C.primary}20`, border: `1px solid ${C.primary}`, color: C.primary, borderRadius: 40, padding:"8px", fontSize:12, fontWeight:700, cursor:"pointer" }}>💾 Guardar</button> 
-          <button onClick={newGame} style={{ flex:1, background: `${C.error}20`, border: `1px solid ${C.error}`, color: C.error, borderRadius: 40, padding:"8px", fontSize:12, fontWeight:700, cursor:"pointer" }}>🔄 Nueva</button> 
-          <button onClick={toggleMusic} style={{ background: musicOn ? C.primary : C.surfaceContainerHigh, color: musicOn ? C.onPrimary : C.secondary, border: `1px solid ${musicOn ? C.primary : C.secondary}`, borderRadius: 40, padding: "8px 12px", fontSize: 14, cursor: "pointer", width: "auto" }} title={musicOn ? "Detener música" : "Iniciar música"}>{musicOn ? "🎶" : "🎵"}</button>
-          <button onClick={exportResults} style={{ background: `${C.warn}20`, border: `1px solid ${C.warn}`, color: C.warn, borderRadius: 40, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>📊 Exportar resultados</button>
-          <button onClick={clearProjector} style={{ background: `${C.tertiary}20`, border: `1px solid ${C.tertiary}`, color: C.tertiary, borderRadius: 40, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>🌙 Ocultar pregunta</button>
-          <button onClick={showProjector} style={{ background: `${C.primary}20`, border: `1px solid ${C.primary}`, color: C.primary, borderRadius: 40, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>☀️ Mostrar pregunta</button>
-          <VoiceControl onCommand={voiceCommandHandler} isActive={voiceActive} onToggle={setVoiceActive} />
-          <button onClick={()=>window.open(window.location.href + '?remote=1', 'RemoteControl', 'width=400,height=600')} style={{ background: `${C.secondary}20`, border: `1px solid ${C.secondary}`, color: C.secondary, borderRadius: 40, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>📱 Control remoto</button>
-        </div> 
-        <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: 12, flex:1, overflowY:"auto", minHeight: 100 }}> 
-          <div style={{ fontSize: 9, color: C.outline, letterSpacing:1, marginBottom:4 }}>REGISTRO</div> 
-          {log.map((l,i)=>( <div key={i} style={{ fontSize: 10, color: i===0 ? C.onSurface : C.outline, padding:"2px 0", borderBottom: `1px solid ${C.outlineVariant}` }}><span style={{ color: C.outline, marginRight: 6, fontSize:9 }}>{l.time}</span>{l.msg}</div> ))} 
-        </div> 
-      </div>
-      <div style={{ overflowY:"auto" }}> 
-        <TournamentMgr teams={teams} onStartMatch={startMatch} currentMatchIdx={matchIdx} roundMatches={roundMatches} onEliminateLowest={elimLowest} roundName={roundName} roundComplete={roundDone} history={history} onShowWait={()=>setShowWait(true)} onTieBreaker={()=>setShowTie(true)} onWinner={setWinner} /> 
-        {!matchActive && ( <button onClick={genMatches} style={{ width:"100%", background: `${C.secondary}20`, color: C.secondary, border: `1px solid ${C.secondary}`, borderRadius: 40, padding:"10px", fontSize:12, fontWeight:700, cursor:"pointer", marginTop:12 }}>⚡ Generar enfrentamientos</button> )} 
-        <div style={{ marginTop: 12, background: C.surfaceContainer, borderRadius: 20, padding: 12 }}> 
-          <div style={{ fontSize:9, color:C.outline, letterSpacing:1, marginBottom:8 }}>REFERENCIA</div> 
-          {[1,2,3].map(s=>{ const cfg = stageConfig[s]; return ( <div key={s} style={{ marginBottom: 8, padding:"6px 10px", borderRadius: 12, background: `${cfg.color}10`, borderLeft: `4px solid ${cfg.color}` }}> <div style={{ fontSize:9, color: cfg.color, fontWeight:600 }}>Etapa {s}</div> <div style={{ fontSize:9, color:C.outline }}>⏱{cfg.time}s · ✓+{cfg.correct} · ✗{cfg.incorrect}</div> </div> ); })} 
-        </div>
-        <QuestionHistoryView history={questionHistory} teams={teams} />
-      </div>
-    </div>
-  </> );
-}
+  return ( <> {scoreAnims.map(a=>( <ScoreFloat key={a.id} value={a.pts} color={a.col} x={a.x} y={a.y} onDone={()=>removeAnim(a.id)}/> ))} {winner && <WinnerModal winner={winner} onClose={() => setWinner(null)} onExport={exportResults} />} {showWait && <WaitScreen roundName={roundName} teams={teams} onClose={()=>setShowWait(false)} waitConfig={waitConfig}/>} {showTie && <TieBreaker teams={teams} teamIndexes={mIdxs.length?mIdxs:active.map((_,i)=>teams.findIndex(t=>t.name===active[i].name))} onClose={()=>{setShowTie(false);}} onAwardPoints={tieAward} addLog={addLog} onStateChange={setTieState}/>} <div className="game-grid" style={{ display: "grid", gridTemplateColumns: "260px 1fr 300px", gap: 16, height: "100%", padding: "0 24px" }}> <div style={{ display:"flex", flexDirection:"column", gap: 12, overflowY:"auto" }}> <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: 12, backdropFilter: "blur(4px)" }}> <div style={{ fontSize: 10, color: C.outline, letterSpacing: 1, marginBottom: 8 }}>FILTROS</div> <div style={{ display:"flex", gap: 6, marginBottom: 8 }}> {[0,1,2,3].map(s=>( <button key={s} onClick={()=>setFStage(s)} style={{ background: fStage===s ? C.primary : "transparent", color: fStage===s ? C.onPrimary : C.outline, border: `1px solid ${fStage===s ? C.primary : C.outlineVariant}`, borderRadius: 40, padding:"4px 12px", fontSize:10, cursor:"pointer" }}>{s===0?"Todas":`E${s}`}</button> ))} </div> <div style={{ display:"flex", gap: 6, marginBottom: 8 }}> {[0,1,2].map(l=>( <button key={l} onClick={()=>setFLevel(l)} style={{ background: fLevel===l ? C.secondary : "transparent", color: fLevel===l ? C.onSecondary : C.outline, border: `1px solid ${fLevel===l ? C.secondary : C.outlineVariant}`, borderRadius: 40, padding:"4px 12px", fontSize:10, cursor:"pointer" }}>{l===0?"Todos":`Nv${l}`}</button> ))} </div> <div style={{ fontSize: 9, color: C.outline, marginTop: 4 }}>{avail.length} disponibles · {usedIds.length} usadas</div> <button onClick={()=>setUsedIds([])} style={{ background: "transparent", color: C.tertiary, border: `1px solid ${C.tertiary}`, borderRadius: 40, padding:"4px 8px", fontSize:9, cursor:"pointer", marginTop:6 }}>↺ Reiniciar usadas</button> </div> <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: 12, flex:1, overflowY:"auto" }}> <div style={{ fontSize: 10, color: C.outline, letterSpacing: 1, marginBottom: 8 }}>BANCO</div> {avail.map(q=> <div key={q.id} onClick={()=>selectQ(q)} style={{ background: curQ?.id===q.id ? `${stageConfig[q.stage].color}20` : "rgba(255,255,255,0.02)", border: `1px solid ${curQ?.id===q.id ? stageConfig[q.stage].color : C.outlineVariant}`, borderRadius: 12, padding:"8px", marginBottom:6, cursor:"pointer" }}> <div style={{ display:"flex", gap: 6, marginBottom: 4 }}> <span style={{ background: `${stageConfig[q.stage].color}20`, color: stageConfig[q.stage].color, fontSize:8, borderRadius:40, padding:"2px 8px" }}>E{q.stage}</span> <span style={{ background: C.outlineVariant, fontSize:8, borderRadius:40, padding:"2px 8px" }}>Nv{q.level}</span> </div> <div style={{ fontSize: 11, lineHeight: 1.3 }}>{q.text.substring(0,50)}</div> </div> )} </div> </div> <div style={{ display:"flex", flexDirection:"column", gap: 12, overflowY:"auto" }}> {curQ && ( <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: 12, display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, flexWrap:"wrap" }}> <Timer seconds={stageConfig[curQ.stage].time} running={running} onEnd={timerEnd} tkey={tkey} extraTime={extraTime}/> <div style={{ display:"flex", gap: 8 }}> {!running ? <button onClick={startTimer} style={{ background: C.primary, color: C.onPrimary, border:"none", borderRadius:40, padding:"6px 18px", fontSize:11, fontWeight:700, cursor:"pointer" }}>▶ Iniciar</button> : <button onClick={pauseTimer} style={{ background: C.tertiary, color: C.onTertiary, border:"none", borderRadius:40, padding:"6px 18px", fontSize:11, fontWeight:700, cursor:"pointer" }}>⏸ Pausar</button>} <button onClick={resetTimer} style={{ background: "transparent", color: C.outline, border: `1px solid ${C.outlineVariant}`, borderRadius:40, padding:"6px 12px", fontSize:11, cursor:"pointer" }}>↺ Reset</button> <button onClick={()=>{ if(curQ) setUsedIds(ids=>[...ids,curQ.id]); addLog("Pregunta marcada como usada"); }} style={{ background: "transparent", color: C.secondary, border: `1px solid ${C.secondary}`, borderRadius:40, padding:"6px 12px", fontSize:10, cursor:"pointer" }}>✓ Usada</button> </div> </div> )} {renderQCard} {matchActive && mTeams.length > 0 && ( <div> <MatchBoard activeTeams={mTeams} teamIndexes={mIdxs} setTeams={setTeamsState} addLog={addLog} teamCardRefs={teamCardRefs} onPaso={()=>{ setCurQ(null); setShowAns(false); setSel({}); setResolved(false); setRunning(false); setTkey(k=>k+1); setExtraTime(0); setHiddenOptions(null); setActiveResponderTeamIdx(null); }} onScoreAnim={triggerAnim} onUseComodin={useComodin} responseMode={responseMode} activeResponderTeamIdx={activeResponderTeamIdx}/> <button onClick={endMatch} style={{ background: `${C.error}20`, color: C.error, border: `1px solid ${C.error}`, borderRadius: 40, padding:"8px", fontSize:12, fontWeight:700, cursor:"pointer", width:"100%", marginTop:12 }}>Terminar enfrentamiento →</button> </div> )} <div style={{ display:"flex", gap: 12, alignItems:"center", flexWrap:"wrap" }}> <button onClick={openProjector} style={{ flex:1, background: projectorActive ? `${C.error}20` : `${C.secondary}20`, border: `1px solid ${projectorActive ? C.error : C.secondary}`, color: projectorActive ? C.error : C.secondary, borderRadius: 40, padding:"8px", fontSize:12, fontWeight:700, cursor:"pointer" }}>{projectorActive ? "✕ Cerrar proyector" : "⛶ Abrir proyector"}</button> <button onClick={manualSave} style={{ flex:1, background: `${C.primary}20`, border: `1px solid ${C.primary}`, color: C.primary, borderRadius: 40, padding:"8px", fontSize:12, fontWeight:700, cursor:"pointer" }}>💾 Guardar</button> <button onClick={newGame} style={{ flex:1, background: `${C.error}20`, border: `1px solid ${C.error}`, color: C.error, borderRadius: 40, padding:"8px", fontSize:12, fontWeight:700, cursor:"pointer" }}>🔄 Nueva</button> <button onClick={toggleMusic} style={{ background: musicOn ? C.primary : C.surfaceContainerHigh, color: musicOn ? C.onPrimary : C.secondary, border: `1px solid ${musicOn ? C.primary : C.secondary}`, borderRadius: 40, padding: "8px 12px", fontSize: 14, cursor: "pointer", width: "auto" }} title={musicOn ? "Detener música" : "Iniciar música"}>{musicOn ? "🎶" : "🎵"}</button> <button onClick={exportResults} style={{ background: `${C.warn}20`, border: `1px solid ${C.warn}`, color: C.warn, borderRadius: 40, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>📊 Exportar resultados</button> <button onClick={clearProjector} style={{ background: `${C.tertiary}20`, border: `1px solid ${C.tertiary}`, color: C.tertiary, borderRadius: 40, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>🌙 Ocultar pregunta</button> <button onClick={showProjector} style={{ background: `${C.primary}20`, border: `1px solid ${C.primary}`, color: C.primary, borderRadius: 40, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>☀️ Mostrar pregunta</button> <VoiceControl onCommand={voiceCommandHandler} isActive={voiceActive} onToggle={setVoiceActive} /> <button onClick={()=>window.open(window.location.href + '?remote=1', 'RemoteControl', 'width=400,height=600')} style={{ background: `${C.secondary}20`, border: `1px solid ${C.secondary}`, color: C.secondary, borderRadius: 40, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>📱 Control remoto</button> </div> <div style={{ background: C.surfaceContainer, borderRadius: 20, padding: 12, flex:1, overflowY:"auto", minHeight: 100 }}> <div style={{ fontSize: 9, color: C.outline, letterSpacing:1, marginBottom:4 }}>REGISTRO</div> {log.map((l,i)=>( <div key={i} style={{ fontSize: 10, color: i===0 ? C.onSurface : C.outline, padding:"2px 0", borderBottom: `1px solid ${C.outlineVariant}` }}><span style={{ color: C.outline, marginRight: 6, fontSize:9 }}>{l.time}</span>{l.msg}</div> ))} </div> </div> <div style={{ overflowY:"auto" }}> <TournamentMgr teams={teams} onStartMatch={startMatch} currentMatchIdx={matchIdx} roundMatches={roundMatches} onEliminateLowest={elimLowest} roundName={roundName} roundComplete={roundDone} history={history} onShowWait={()=>setShowWait(true)} onTieBreaker={()=>setShowTie(true)} onWinner={setWinner} /> {!matchActive && ( <button onClick={genMatches} style={{ width:"100%", background: `${C.secondary}20`, color: C.secondary, border: `1px solid ${C.secondary}`, borderRadius: 40, padding:"10px", fontSize:12, fontWeight:700, cursor:"pointer", marginTop:12 }}>⚡ Generar enfrentamientos</button> )} <div style={{ marginTop: 12, background: C.surfaceContainer, borderRadius: 20, padding: 12 }}> <div style={{ fontSize:9, color:C.outline, letterSpacing:1, marginBottom:8 }}>REFERENCIA</div> {[1,2,3].map(s=>{ const cfg = stageConfig[s]; return ( <div key={s} style={{ marginBottom: 8, padding:"6px 10px", borderRadius: 12, background: `${cfg.color}10`, borderLeft: `4px solid ${cfg.color}` }}> <div style={{ fontSize:9, color: cfg.color, fontWeight:600 }}>Etapa {s}</div> <div style={{ fontSize:9, color:C.outline }}>⏱{cfg.time}s · ✓+{cfg.correct} · ✗{cfg.incorrect}</div> </div> ); })} </div> <QuestionHistoryView history={questionHistory} teams={teams} /> </div> </div> </> ); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
  *  CONFIGURACIÓN DE EQUIPOS
@@ -1551,6 +1023,13 @@ function App() {
     };
     loadData();
   }, []);
+
+  // PERSISTENCIA AUTOMÁTICA DE PREGUNTAS
+  useEffect(() => {
+    if (questions.length) {
+      saveQuestionsToDB(questions);
+    }
+  }, [questions]);
 
   const resetQuestionsToDefault = async () => { setQuestions(DEMO_Q); await saveQuestionsToDB(DEMO_Q); };
   const startNewGame = () => { setStarted(true); setTab("game"); };
