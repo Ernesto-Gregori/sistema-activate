@@ -178,7 +178,7 @@ const DEMO_Q = [
 const LogoSymbol = () => ( <svg style={{display:'none'}}><symbol id="logo-svg-defs" viewBox="0 0 3450 1313"><path d="M2716.26,433.584l358.583,0l0,92.817l-232.9,0l0,77.829l177.567,0l0,101.458l-177.567,0l0,78.413l236.371,0l0,95.7l-362.054,0l0,-446.217Z" fill="#fff"/><path d="M1861.796,433.008l-124.525,0l164.088,445.296l63.279,0.917l0,-162.175l-102.842,-284.038Z" fill="#fff"/><path d="M2191.992,433.008l-115.483,0l-161.771,446.213l110.938,0l102.838,-280.675l102.829,280.675l124.537,0l-163.887,-446.213Z" fill="#fff"/><path d="M2128.69,260.022l-164.054,454.133l-43.737,-119.863l-1652.925,0l-122.246,119.863l1696.004,0l122.904,338.321l164.054,-458.183l39.892,119.863l1003.775,0l131.908,-119.863l-1053.588,0l-121.988,-334.271Z" fill="#a5c614"/><path d="M566.19,433.008l-126.962,0l-163.879,446.213l124.525,0l102.837,-271.529l102.833,271.529l124.529,0l-163.883,-446.213Z" fill="#fff"/><path d="M1148.613,793.9c-20.383,30.746 -47.279,54.675 -80.713,71.775c-33.442,17.096 -70.912,25.662 -112.425,25.662c-34.587,0 -66.392,-5.875 -95.408,-17.587c-29.025,-11.725 -53.904,-27.963 -74.662,-48.717c-20.754,-20.758 -36.892,-45.446 -48.421,-74.083c-11.533,-28.633 -17.3,-60.046 -17.3,-94.258c0,-33.054 5.854,-63.996 17.588,-92.821c11.712,-28.825 28.146,-53.804 49.292,-74.946c21.129,-21.133 46.012,-37.763 74.654,-49.863c28.625,-12.108 60.05,-18.163 94.258,-18.163c39.583,0 76.104,7.783 109.538,23.346c33.438,15.567 60.717,37.575 81.867,66.008l-99.158,77.254c-9.612,-14.987 -22.971,-26.129 -40.071,-33.438c-17.108,-7.296 -34.5,-10.954 -52.175,-10.954c-15.375,0 -29.688,2.796 -42.95,8.358c-13.258,5.579 -24.787,13.362 -34.587,23.35c-9.796,10 -17.496,22.008 -23.063,36.033c-5.575,14.033 -8.354,29.308 -8.354,45.833c0,14.983 2.875,29.2 8.642,42.662c5.767,13.458 13.55,25.267 23.35,35.446c9.8,10.196 21.333,18.171 34.592,23.929c13.258,5.763 27.379,8.654 42.371,8.654c18.058,0 34.883,-4.321 50.446,-12.979c15.567,-8.65 28.146,-20.462 37.762,-35.454l104.929,74.95Z" fill="#fff"/><path d="M1167.629,532.163l0,-98.579l397.221,0l0,98.579l-135.487,0l0,347.638l-126.254,0l0,-347.638l-135.479,0Z" fill="#fff"/><rect x="1591.929" y="433.583" width="125.683" height="446.217" fill="#fff"/><path d="M2291.964,532.163l0,-98.579l397.217,0l0,98.579l-135.479,0l0,347.638l-126.254,0l0,-347.638l-135.483,0Z" fill="#fff"/></symbol></svg> );
 
 /* ═══════════════════════════════════════════════════════════════════════════
- *  MOTOR DE AUDIO (con IndexedDB) – SIN CAMBIOS
+ *  MOTOR DE AUDIO (con IndexedDB) – MEJORADO
  * ═══════════════════════════════════════════════════════════════════════════ */
 const AudioEngine = (() => {
   let ctx = null, currentSource = null, currentGain = null, isMusicPlaying = false, currentPhase = 'start';
@@ -204,7 +204,15 @@ const AudioEngine = (() => {
   const startBackgroundMusic = async (phase = 'start') => { if (!phase) phase = 'start'; if (isMusicPlaying && currentPhase === phase) return; if (currentSource) { try { currentSource.stop(); } catch(e) {} currentSource = null; } if (musicInterval) { clearInterval(musicInterval); musicInterval = null; } if (currentGain) currentGain.disconnect(); const ac = getCtx(); await resumeContext(); currentPhase = phase; const buffer = musicBuffers[phase]; if (buffer) { currentSource = ac.createBufferSource(); currentSource.buffer = buffer; currentSource.loop = true; currentGain = ac.createGain(); currentGain.gain.value = 0.3; currentSource.connect(currentGain); currentGain.connect(ac.destination); currentSource.start(); isMusicPlaying = true; } else { musicInterval = playDefaultMusicForPhase(phase, ac); isMusicPlaying = true; } };
   const stopBackgroundMusic = () => { if (musicInterval) { clearInterval(musicInterval); musicInterval = null; } if (currentSource) { try { currentSource.stop(); } catch(e) {} currentSource = null; } if (currentGain) { currentGain.gain.linearRampToValueAtTime(0, (ctx?.currentTime || 0) + 0.5); setTimeout(() => { if (currentGain) currentGain.disconnect(); }, 500); } isMusicPlaying = false; };
   const toggleMusic = async () => { if (isMusicPlaying) stopBackgroundMusic(); else await startBackgroundMusic(currentPhase || 'start'); return isMusicPlaying; };
-  const setMusicPhase = (phase) => { if (isMusicPlaying) { stopBackgroundMusic(); startBackgroundMusic(phase); } else { currentPhase = phase; } };
+  const setMusicPhase = (phase) => {
+    if (phase === currentPhase) return;
+    if (isMusicPlaying) {
+      stopBackgroundMusic();
+      startBackgroundMusic(phase);
+    } else {
+      currentPhase = phase;
+    }
+  };
   const openDB = () => new Promise((resolve, reject) => { if (db) return resolve(db); const request = indexedDB.open(DB_NAME, DB_VERSION); request.onerror = () => reject(request.error); request.onsuccess = () => { db = request.result; resolve(db); }; request.onupgradeneeded = (event) => { const db = event.target.result; if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME); }; });
   const saveBufferToDB = async (key, arrayBuffer) => { const database = await openDB(); return new Promise((resolve, reject) => { const tx = database.transaction(STORE_NAME, 'readwrite'); const store = tx.objectStore(STORE_NAME); const request = store.put(arrayBuffer, key); request.onsuccess = () => resolve(); request.onerror = () => reject(request.error); }); };
   const loadBufferFromDB = async (key) => { const database = await openDB(); return new Promise((resolve, reject) => { const tx = database.transaction(STORE_NAME, 'readonly'); const store = tx.objectStore(STORE_NAME); const request = store.get(key); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); };
@@ -221,7 +229,8 @@ const AudioEngine = (() => {
   };
   const init = async () => { if (readyPromise) return readyPromise; readyPromise = (async () => { await loadAllFromDB(); isReady = true; })(); return readyPromise; };
   init();
-  return { correct() { playSound('correct', defaultCorrect); }, wrong() { playSound('wrong', defaultWrong); }, timeout() { playSound('timeout', defaultTimeout); }, tick() { playSound('tick', defaultTick); }, fanfare() { playSound('fanfare', defaultFanfare); }, joker() { playSound('joker', defaultJoker); }, countdown() { playSound('countdown', defaultCountdown); }, roundEnd() { playSound('roundEnd', defaultRoundEnd); }, startMusic: startBackgroundMusic, stopMusic: stopBackgroundMusic, toggleMusic, setMusicPhase, isMusicPlaying: () => isMusicPlaying, setCustomSound, resetToDefaultSound, setCustomMusic, resetToDefaultMusic, getCustomSoundStatus: () => ({ ...customBuffers, ...musicBuffers }), playTestSound: (type) => { if (type.startsWith('music_')) { const phase = type.replace('music_', ''); if (isMusicPlaying) stopBackgroundMusic(); startBackgroundMusic(phase); setTimeout(() => { if (isMusicPlaying) stopBackgroundMusic(); }, 5000); } else { if (type === 'correct') AudioEngine.correct(); else if (type === 'wrong') AudioEngine.wrong(); else if (type === 'timeout') AudioEngine.timeout(); else if (type === 'tick') AudioEngine.tick(); else if (type === 'fanfare') AudioEngine.fanfare(); else if (type === 'joker') AudioEngine.joker(); else if (type === 'countdown') AudioEngine.countdown(); else if (type === 'roundEnd') AudioEngine.roundEnd(); } }, init, isReady: () => isReady };
+  return { correct() { playSound('correct', defaultCorrect); }, wrong() { playSound('wrong', defaultWrong); }, timeout() { playSound('timeout', defaultTimeout); }, tick() { playSound('tick', defaultTick); }, fanfare() { playSound('fanfare', defaultFanfare); }, joker() { playSound('joker', defaultJoker); }, countdown() { playSound('countdown', defaultCountdown); }, roundEnd() { playSound('roundEnd', defaultRoundEnd); }, startMusic: startBackgroundMusic, stopMusic: stopBackgroundMusic, toggleMusic, setMusicPhase, isMusicPlaying: () => isMusicPlaying, setCustomSound, resetToDefaultSound, setCustomMusic, resetToDefaultMusic, getCustomSoundStatus: () => ({ ...customBuffers, ...musicBuffers }), playTestSound: (type) => { if (type.startsWith('music_')) { const phase = type.replace('music_', ''); if (isMusicPlaying) stopBackgroundMusic(); startBackgroundMusic(phase); setTimeout(() => { if (isMusicPlaying) stopBackgroundMusic(); }, 5000); } else { if (type === 'correct') AudioEngine.correct(); else if (type === 'wrong') AudioEngine.wrong(); else if (type === 'timeout') AudioEngine.timeout(); else if (type === 'tick') AudioEngine.tick(); else if (type === 'fanfare') AudioEngine.fanfare(); else if (type === 'joker') AudioEngine.joker(); else if (type === 'countdown') AudioEngine.countdown(); else if (type === 'roundEnd') AudioEngine.roundEnd(); } }, init, isReady: () => isReady, resumeContext
+  };
 })();
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -271,7 +280,7 @@ const ScoreFloat = memo(({value, color, x, y, onDone}) => {
   return ( <div className="float-score" style={{ left: x, top: y, color, textShadow: `0 0 15px ${color}` }}>{value>0?`+${value}`:value}</div> );
 });
 
-const Timer = memo(({seconds, running, onEnd, tkey, size="sm", extraTime=0, bonusKey=0, bonusAmount=0}) => {
+const Timer = memo(({seconds, running, onEnd, tkey, size="sm", extraTime=0, bonusKey=0, bonusAmount=0, muteSounds=false}) => {
   const initialTime = seconds + extraTime;
   const [rem, setRem] = useState(initialTime);
   const [showBonus, setShowBonus] = useState(false);
@@ -279,27 +288,25 @@ const Timer = memo(({seconds, running, onEnd, tkey, size="sm", extraTime=0, bonu
   const ref = useRef();
   const prevRem = useRef(rem);
   const bonusApplied = useRef(false);
-  const prevBonusKey = useRef(bonusKey); // tracks last seen bonusKey to detect real changes
-  const endedRef = useRef(false);       // true once onEnd fires — reset by bonus
-  const runningRef = useRef(running);   // always current running value inside setInterval
+  const prevBonusKey = useRef(bonusKey);
+  const endedRef = useRef(false);
+  const runningRef = useRef(running);
   const onEndRef = useRef(onEnd);
   useEffect(() => { onEndRef.current = onEnd; }, [onEnd]);
   useEffect(() => { runningRef.current = running; }, [running]);
 
-  // Full reset when tkey changes (new question / manual reset)
   useEffect(()=>{
     const t = seconds + extraTime;
     setRem(t);
     maxRemRef.current = t;
     bonusApplied.current = false;
-    prevBonusKey.current = bonusKey; // sync so next bonusKey change is detected correctly
+    prevBonusKey.current = bonusKey;
     endedRef.current = false;
     clearInterval(ref.current);
-  }, [tkey]); // eslint-disable-line
+  }, [tkey]);
 
-  // Add bonus seconds — fires when bonusKey actually increments (not on mount)
   useEffect(()=>{
-    if (prevBonusKey.current === bonusKey) return; // no real change (initial render)
+    if (prevBonusKey.current === bonusKey) return;
     prevBonusKey.current = bonusKey;
     if (bonusAmount <= 0) return;
     endedRef.current = false;
@@ -315,15 +322,14 @@ const Timer = memo(({seconds, running, onEnd, tkey, size="sm", extraTime=0, bonu
       ref.current = setInterval(()=>{
         setRem(r=>{
           if (r <= 1) { clearInterval(ref.current); if (!endedRef.current) { endedRef.current = true; onEndRef.current(); } return 0; }
-          if (r <= 4 && r !== prevRem.current) AudioEngine.tick();
+          if (r <= 4 && r !== prevRem.current && !muteSounds) AudioEngine.tick();
           prevRem.current = r;
           return r - 1;
         });
       }, 1000);
     }
-  }, [bonusKey]); // eslint-disable-line
+  }, [bonusKey]);
 
-  // Main countdown interval
   useEffect(()=>{
     if (!running) { clearInterval(ref.current); return; }
     endedRef.current = false;
@@ -334,13 +340,13 @@ const Timer = memo(({seconds, running, onEnd, tkey, size="sm", extraTime=0, bonu
           if (!endedRef.current) { endedRef.current = true; onEndRef.current(); }
           return 0;
         }
-        if (r <= 4 && r !== prevRem.current) AudioEngine.tick();
+        if (r <= 4 && r !== prevRem.current && !muteSounds) AudioEngine.tick();
         prevRem.current = r;
         return r - 1;
       });
     }, 1000);
     return () => clearInterval(ref.current);
-  }, [running, tkey]);
+  }, [running, tkey, muteSounds]);
 
   const pct = Math.min(100, (rem / (maxRemRef.current || 1)) * 100);
   const isCritical = rem <= 3 && running;
@@ -398,7 +404,7 @@ const RoundHistory = memo(({history}) => {
   </div> );
 });
 
-// ========== TIEBREAKER CORREGIDO ==========
+// ========== TIEBREAKER ==========
 const TieBreaker = memo(({teams, teamIndexes, onClose, onAwardPoints, addLog, onStateChange, questions}) => {
   const [phase, setPhase] = useState("setup");
   const [selectedQuestion, setSelectedQuestion] = useState(null);
@@ -408,7 +414,6 @@ const TieBreaker = memo(({teams, teamIndexes, onClose, onAwardPoints, addLog, on
   const [showVerse, setShowVerse] = useState(false);
   const activeTeams = useMemo(() => teamIndexes.map(i=>teams[i]).filter(Boolean), [teams, teamIndexes]);
 
-  // Refs para que los callbacks siempre lean valores actuales sin recrearse
   const phaseRef = useRef(phase);
   const selectedQuestionRef = useRef(selectedQuestion);
   const showVerseRef = useRef(showVerse);
@@ -429,13 +434,11 @@ const TieBreaker = memo(({teams, teamIndexes, onClose, onAwardPoints, addLog, on
   
   useEffect(() => { AudioEngine.setMusicPhase('tiebreaker'); }, []);
   
-  // Notificar al proyector cada vez que cambia cualquier pieza del estado del desempate
   useEffect(() => {
     if (onStateChange) {
       onStateChange({
         phase,
         word: selectedQuestion?.text || "",
-        // Siempre enviamos el texto completo; el proyector decide si mostrarlo según showVerse
         fullText: selectedQuestion?.answer || "",
         showVerse,
         running,
@@ -455,7 +458,6 @@ const TieBreaker = memo(({teams, teamIndexes, onClose, onAwardPoints, addLog, on
   }, [addLog]);
   
   const begin = useCallback(() => {
-    // El versículo permanece oculto al comenzar; el operador lo revela manualmente
     setShowVerse(false);
     setPhase("active");
     setTkey(k => k + 1);
@@ -480,11 +482,9 @@ const TieBreaker = memo(({teams, teamIndexes, onClose, onAwardPoints, addLog, on
     }
   }, [addLog]);
   
-  // CRÍTICO: handleTimeout debe ser estable (useCallback sin dependencias volátiles)
-  // para que Timer no recree el intervalo al recibirla como onEnd
   const handleTimeout = useCallback(() => {
     setRunning(false);
-    setShowVerse(true);   // revelar siempre al acabar el tiempo
+    setShowVerse(true);
     setPhase(p => p === "active" ? "done" : p);
     addLog("Tiempo agotado – versículo revelado");
   }, [addLog]);
@@ -565,7 +565,7 @@ const TieBreaker = memo(({teams, teamIndexes, onClose, onAwardPoints, addLog, on
               )}
             </div>
             <div style={{display:"flex", justifyContent:"center", marginBottom:8}}>
-              <Timer seconds={30} running={running} onEnd={handleTimeout} tkey={tkey} size="lg"/>
+              <Timer seconds={30} running={running} onEnd={handleTimeout} tkey={tkey} size="lg" muteSounds={true} />
             </div>
             <div style={{display:"flex", justifyContent:"center", gap:8, marginBottom:16}}>
               <button onClick={()=>setRunning(r=>!r)} style={{ background: running ? `${C.error}20` : `${C.primary}20`, border:`1px solid ${running ? C.error : C.primary}`, color: running ? C.error : C.primary, borderRadius:40, padding:"6px 16px", fontSize:11, fontWeight:700, cursor:"pointer" }}> {running ? "⏸ Pausar" : "▶ Reanudar"} </button>
@@ -639,6 +639,14 @@ const TournamentMgr = memo(({teams, onStartMatch, currentMatchIdx, roundMatches,
     else phase = 'initial';
     AudioEngine.setMusicPhase(phase);
   }, [roundName]);
+  useEffect(() => {
+    let phase = 'initial';
+    if (roundName === 'Final') phase = 'final';
+    else if (roundName === 'Semifinal') phase = 'semifinal';
+    else if (roundName === 'Ronda Inicial' || roundName === 'Cuartos de Final') phase = 'initial';
+    else phase = 'initial';
+    AudioEngine.setMusicPhase(phase);
+  }, []);
   const handleEliminateClick = () => { const act = teams.filter(t=>!t.eliminated); if (act.length < 2) return; const low = act.reduce((a,b)=>a.score<b.score?a:b); setLowestTeam(low); setShowConfirmModal(true); };
   const confirmElimination = () => { if (lowestTeam) { onEliminateLowest(lowestTeam); AudioEngine.roundEnd(); } setShowConfirmModal(false); setLowestTeam(null); };
   useEffect(() => { if (roundComplete && active.length > 1) AudioEngine.roundEnd(); }, [roundComplete]);
@@ -658,7 +666,6 @@ const SoundManager = memo(() => {
 });
 
 const QManager = memo(({questions, setQuestions, onExport, resetToDefault}) => {
-  // Mismo QManager que en el código original (sin cambios)
   const allQuestions = useMemo(() => questions.map(migrateQuestion), [questions]);
   const typeIds = Object.keys(QUESTION_TYPES);
   const blank = { id: Date.now(), type: "multiple_choice", stage: 1, text: "", options: ["","","",""], answer: "A", levels: [1] };
@@ -798,7 +805,6 @@ const QManager = memo(({questions, setQuestions, onExport, resetToDefault}) => {
 
   return (
     <div style={{ display:"grid", gridTemplateColumns:"360px 1fr", gap:16, height:"calc(100vh - 80px)", padding:"0 24px" }}>
-      {/* Panel izquierdo: editor */}
       <div style={{ background: C.surfaceContainer, borderRadius:24, padding:16, overflowY:"auto", backdropFilter:"blur(4px)" }}>
         <div style={{ fontSize:12, color:C.secondary, fontWeight:700, letterSpacing:1, marginBottom:12 }}>
           {editId ? "✏️ EDITAR PREGUNTA" : "➕ NUEVA PREGUNTA"}
@@ -896,7 +902,6 @@ const QManager = memo(({questions, setQuestions, onExport, resetToDefault}) => {
         <div style={{ fontSize:9, color:C.outline, textAlign:"center", marginTop:10 }}>{allQuestions.length} preguntas en total</div>
       </div>
 
-      {/* Panel derecho: banco de preguntas */}
       <div style={{ background: C.surfaceContainer, borderRadius:24, padding:16, overflowY:"auto" }}>
         <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12, flexWrap:"wrap" }}>
           <div style={{ fontSize:12, color:C.secondary, fontWeight:700 }}>BANCO DE PREGUNTAS</div>
@@ -1019,7 +1024,7 @@ const RemoteControl = () => {
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════
- *  VISTA DEL PROYECTOR (sin estadísticas) – MEJORADA PARA DESEMPATE
+ *  VISTA DEL PROYECTOR (sin estadísticas) – MEJORADA
  * ═══════════════════════════════════════════════════════════════════════════ */
 function ProjectorView() {
   const [state, setState] = useState({ 
@@ -1068,7 +1073,7 @@ function ProjectorView() {
             <div style={{fontSize:20, fontWeight:600}}>{tieShowVerse ? (tieFullText || "...") : tieWord}</div>
           </div>
           <div style={{display:"flex", justifyContent:"center", marginBottom:24}}>
-            <Timer seconds={30} running={tieRunning} onEnd={()=>{}} tkey={tieTkey} size="lg" />
+            <Timer seconds={30} running={tieRunning} onEnd={()=>{}} tkey={tieTkey} size="lg" muteSounds={true} />
           </div>
           {tiePhase === 'active' && (
             <div className="tie-teams">
@@ -1161,11 +1166,11 @@ function ProjectorView() {
   )}
   {!currentQType.hasOptions && !showAnswer && !resolved && (
     <div style={{ textAlign: "center", marginTop: 40, fontFamily: "'JetBrains Mono', monospace", fontSize: 32, color: C.outline }}>— — —</div>
-  )} </div> <div style={{ flexShrink: 0 }}><Timer seconds={currentStageConfig.time} running={running} onEnd={()=>{}} tkey={remaining} extraTime={extraTime || 0} bonusKey={bonusKey || 0} bonusAmount={bonusAmount || 5} size="lg" /></div> </> ) : ( <div style={{ textAlign: "center" }}><svg viewBox="0 0 3450 1313" style={{ height: '120px', width: 'auto', marginBottom: '20px' }}><use href="#logo-svg-defs" /></svg><div style={{ fontSize: 80, fontWeight: 800, fontFamily: "'Hanken Grotesk', sans-serif", letterSpacing: -6, color: C.primary, textShadow: "0 0 40px #97df5c" }}>DILO</div><div style={{ fontSize: 80, fontWeight: 800, fontFamily: "'Hanken Grotesk', sans-serif", letterSpacing: -6 }}>COMO</div><div style={{ fontSize: 80, fontWeight: 800, fontFamily: "'Hanken Grotesk', sans-serif", letterSpacing: -6, color: C.secondary }}>ES!</div></div> )} </div> </div> </div> );
+  )} </div> <div style={{ flexShrink: 0 }}><Timer seconds={currentStageConfig.time} running={running} onEnd={()=>{}} tkey={remaining} extraTime={extraTime || 0} bonusKey={bonusKey || 0} bonusAmount={bonusAmount || 5} size="lg" muteSounds={true} /></div> </> ) : ( <div style={{ textAlign: "center" }}><svg viewBox="0 0 3450 1313" style={{ height: '120px', width: 'auto', marginBottom: '20px' }}><use href="#logo-svg-defs" /></svg><div style={{ fontSize: 80, fontWeight: 800, fontFamily: "'Hanken Grotesk', sans-serif", letterSpacing: -6, color: C.primary, textShadow: "0 0 40px #97df5c" }}>DILO</div><div style={{ fontSize: 80, fontWeight: 800, fontFamily: "'Hanken Grotesk', sans-serif", letterSpacing: -6 }}>COMO</div><div style={{ fontSize: 80, fontWeight: 800, fontFamily: "'Hanken Grotesk', sans-serif", letterSpacing: -6, color: C.secondary }}>ES!</div></div> )} </div> </div> </div> );
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
- *  VISTA PRINCIPAL DEL JUEGO (GameView) – CORREGIDO (sin duplicados)
+ *  VISTA PRINCIPAL DEL JUEGO (GameView) – CORREGIDO
  * ═══════════════════════════════════════════════════════════════════════════ */
 function exportResultsToExcel(teams, historyLog, roundsHistory) {
   const summary = teams.map(t => ({ Equipo: t.name, 'Puntaje final': t.score, Eliminado: t.eliminated ? 'Sí' : 'No', Racha: t.streak || 0, Avatar: t.avatar || "🏆" }));
@@ -1271,7 +1276,7 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
   const [tkey, setTkey] = useState(() => initialState?.tkey || 0);
   const [extraTime, setExtraTime] = useState(() => initialState?.extraTime || 0);
   const [bonusKey, setBonusKey] = useState(0);
-  const [bonusAmount] = useState(5); // segundos que agrega el comodín Capitán
+  const [bonusAmount] = useState(5);
   const [sel, setSel] = useState(() => initialState?.sel || {});
   const [hiddenOptions, setHiddenOptions] = useState(() => initialState?.hiddenOptions || null);
   const [responseMode, setResponseMode] = useState(() => initialState?.responseMode || "all");
@@ -1297,9 +1302,6 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
   const [optionsRevealed, setOptionsRevealed] = useState(false);
   const teamCardRefs = useRef({});
   const winnerDetectedRef = useRef(false);
-  // La detección del ganador ahora se hace proactivamente en elimLowest,
-  // antes de que los puntajes se reinicien — este useEffect ya no es necesario.
-  // Se mantiene winnerDetectedRef por compatibilidad pero el effect está desactivado.
   useEffect(() => { const activeTeams = teams.filter(t => !t.eliminated); if (activeTeams.length === teams.length && teams.length > 1) { winnerDetectedRef.current = false; } }, [teams]);
 
   const active = useMemo(() => teams.filter(t=>!t.eliminated), [teams]);
@@ -1307,6 +1309,7 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
   const mIdxs = curMatch.filter(n=>n!=="__BYE__").map(n=>teams.findIndex(t=>t.name===n));
   const mTeams = mIdxs.map(i=>teams[i]).filter(Boolean);
   const getTeamLetter = (globalIdx) => String.fromCharCode(65 + globalIdx);
+  const getRoundName = remCount => { if (remCount <= 2) return "Final"; if (remCount <= 4) return "Semifinal"; if (remCount <= 8) return "Cuartos de Final"; return "Ronda Inicial"; };
 
   const persistGameState = useCallback(async () => { 
     if (practiceMode) return;
@@ -1324,7 +1327,7 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
 
   const triggerAnim = useCallback((ti, pts) => { if (practiceMode) return; const el = teamCardRefs.current[ti]; if (!el) return; const rect = el.getBoundingClientRect(); const col = pts > 0 ? C.primary : C.error; setScoreAnims(a=>[...a, {id:Date.now()+Math.random(), pts, col, x: rect.left + rect.width/2 - 20, y: rect.top - 10}]); }, [practiceMode]);
   const removeAnim = useCallback(id => setScoreAnims(a=>a.filter(x=>x.id!==id)), []);
-  const getRoundName = remCount => { if (remCount <= 2) return "Final"; if (remCount <= 4) return "Semifinal"; if (remCount <= 8) return "Cuartos de Final"; return "Ronda Inicial"; };
+  
   const genMatches = useCallback(() => { const names = active.map(t=>t.name); let rr = [...names]; const hasBye = rr.length % 2 === 1; if (hasBye) rr.push("__BYE__"); const n = rr.length; const m = []; for (let r = 0; r < n - 1; r++) { for (let i = 0; i < n / 2; i++) { const t1 = rr[i], t2 = rr[n - 1 - i]; if (t1 === "__BYE__") m.push([t2, "__BYE__"]); else if (t2 === "__BYE__") m.push([t1, "__BYE__"]); else m.push([t1, t2]); } rr = [rr[0], rr[n-1], ...rr.slice(1, n-1)]; } setRoundMatches(m); setMatchIdx(0); setMatchActive(false); setRoundDone(false); setCurRoundData([]); addLog(`${m.filter(x => !x.includes("__BYE__")).length} enfrentamientos generados — ${roundName}${hasBye ? " (1 pase libre)" : ""}`); }, [active, roundName, addLog]);
 
   const generateMatchQuestions = useCallback(() => {
@@ -1367,6 +1370,8 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
       setCurRoundData([]);
       setMatchActive(false);
       setMatchInProgress(false);
+      const activeTeamsCount = teams.filter(t => !t.eliminated).length;
+      setRoundName(getRoundName(activeTeamsCount));
       addLog(`Nivel cambiado a ${newLevel === 1 ? 'Nivel 1 (Club Bíblico)' : 'Nivel 2 (Líderes)'}`);
     }
   };
@@ -1450,7 +1455,6 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
     }
   }, [matchInProgress, currentQIndex, matchQuestionsList, mTeams, mIdxs, teams, matchIdx, roundMatches, addLog]);
 
-  // ========== UNA SOLA DECLARACIÓN DE getProjectorPayload ==========
   const getProjectorPayload = useCallback(() => ({ 
     curQ, showAnswer: showAns, resolved, sel, remaining: tkey, running, 
     teams: teams.map(t=>({name:t.name, score:t.score, eliminated:t.eliminated, streak:t.streak, avatar:t.avatar, jokers:t.jokers})), 
@@ -1458,7 +1462,6 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
     showTie, tiePhase: tieState.phase, tieWord: tieState.word, tieFullText: tieState.fullText, tieShowVerse: tieState.showVerse, tieRunning: tieState.running, tieTkey: tieState.tkey, tieWinner: tieState.winner, tieTeams: tieState.teams, tieTeamIndexes: tieState.teamIndexes, 
     projectorClear, stageConfig, waitConfig, questionHistory, winner, practiceMode, currentLevel, optionsRevealed 
   }), [curQ, showAns, resolved, sel, tkey, running, teams, mTeams, mIdxs, hiddenOptions, extraTime, bonusKey, responseMode, activeResponderTeamIdx, showWait, roundName, showTie, tieState, projectorClear, stageConfig, waitConfig, questionHistory, winner, practiceMode, currentLevel, optionsRevealed]);
-  // ================================================================
 
   const handleSelect = useCallback((action, ti) => { if (!curQ) return; if (["A","B","C","D",null].includes(action)) { if (ti !== undefined) setSel(s=>({...s,[ti]:action})); else setSel(s=>{const n={...s};mTeams.forEach((_,idx)=>{if(!n[idx])n[idx]=action;});return n;}); } }, [curQ, mTeams]);
   const revealAnswerManually = useCallback(() => { 
@@ -1565,11 +1568,9 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
       setHiddenOptions(shuffled.slice(0,2)); 
       addLog(`50/50 activado: se ocultan 2 opciones`); 
     } else if (comodinIdx === 1) {
-      // Capitán: agregar 5 segundos al tiempo restante SIN reiniciar el timer
       setBonusKey(k => k + 1);
       addLog(`Ayuda Capitán: +5 segundos extra`);
     } else if (comodinIdx === 2 && curQ) { 
-      // Cambiar: buscar pregunta diferente de la misma etapa
       const allMigrated = questions.map(migrateQuestion);
       const posibles = allMigrated.filter(q =>
         q.stage === migrateQuestion(curQ).stage &&
@@ -1605,17 +1606,13 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
       return; 
     } 
     setHistory(h=>[...h, { roundName, matches: curRoundData, eliminated: lowTeam.name }]); 
-
-    // Capturar el ganador ANTES del reset de puntajes
     const remaining = active.filter(t => t.name !== lowTeam.name);
     if (remaining.length === 1) {
-      // Es el último equipo — guardar snapshot completo con puntajes reales
       const winnerTeam = remaining[0];
       const fullSnapshot = active.map(t => ({...t, eliminated: t.name === lowTeam.name ? true : t.eliminated}));
       setWinner({...winnerTeam, _teamsSnapshot: fullSnapshot});
       AudioEngine.fanfare();
     }
-
     setTeamsState(prevTeams => { 
       const updatedTeams = prevTeams.map(t => {
         if (t.name === lowTeam.name) return {...t, eliminated: true};
@@ -1709,7 +1706,7 @@ function GameView({questions, teams: initialTeams, setTeams: setTeamsParent, ini
 )} <TournamentMgr teams={teams} onStartMatch={startMatch} currentMatchIdx={matchIdx} roundMatches={roundMatches} onEliminateLowest={elimLowest} roundName={roundName} roundComplete={roundDone} history={history} onShowWait={()=>setShowWait(true)} onTieBreaker={()=>setShowTie(true)} onWinner={setWinner} /> {!matchActive && ( <button onClick={genMatches} style={{ width:"100%", background: `${C.secondary}20`, color: C.secondary, border: `1px solid ${C.secondary}`, borderRadius: 40, padding:"10px", fontSize:12, fontWeight:700, cursor:"pointer", marginTop:12 }}>⚡ Generar enfrentamientos</button> )} <div style={{ marginTop: 12, background: C.surfaceContainer, borderRadius: 20, padding: 12 }}> <div style={{ fontSize:9, color:C.outline, letterSpacing:1, marginBottom:8 }}>REFERENCIA</div> {[1,2,3].map(s=>{ const cfg = stageConfig[s]; return ( <div key={s} style={{ marginBottom: 8, padding:"6px 10px", borderRadius: 12, background: `${cfg.color}10`, borderLeft: `4px solid ${cfg.color}` }}> <div style={{ fontSize:9, color: cfg.color, fontWeight:600 }}>Etapa {s}</div> <div style={{ fontSize:9, color:C.outline }}>⏱{cfg.time}s · ✓+{cfg.correct} · ✗{cfg.incorrect}</div> </div> ); })} </div> <QuestionHistoryView history={questionHistory} teams={teams} /> </div> </div> </> ); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
- *  CONFIGURACIÓN DE EQUIPOS (TeamSetup) – SIN CAMBIOS
+ *  CONFIGURACIÓN DE EQUIPOS (TeamSetup)
  * ═══════════════════════════════════════════════════════════════════════════ */
 const TeamSetup = memo(({teams, setTeams, onStart, onLoadGame, hasSave}) => {
   const [avatarOptions] = useState(["🏆", "⚡", "🔥", "💎", "🎯", "⭐", "🏀", "⚽", "🎨", "🤖", "🐉", "🦅", "🌵", "🍕", "🚀"]);
@@ -1721,7 +1718,7 @@ const TeamSetup = memo(({teams, setTeams, onStart, onLoadGame, hasSave}) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════
- *  APLICACIÓN PRINCIPAL (App) – SIN CAMBIOS
+ *  APLICACIÓN PRINCIPAL (App)
  * ═══════════════════════════════════════════════════════════════════════════ */
 function App() {
   const [tab, setTab] = useState("setup");
@@ -1774,11 +1771,39 @@ function App() {
 
 function Root() {
   const [audioReady, setAudioReady] = useState(false);
-  useEffect(() => { AudioEngine.init().then(() => setAudioReady(true)); }, []);
-  if (!audioReady) return <div style={{ background: C.bg, height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.onSurface, fontSize: 20 }}>Cargando sonidos...</div>;
-  AudioEngine.startMusic('start');
+  
+  useEffect(() => {
+    AudioEngine.init().then(() => setAudioReady(true));
+  }, []);
+
+  // ✅ Todos los hooks se llaman siempre, en el mismo orden
+  useEffect(() => {
+    if (!audioReady) return;
+    const isProjector = window.location.search.includes('projector=1');
+    const isRemote = window.location.search.includes('remote=1');
+    if (!isProjector && !isRemote) {
+      // Iniciamos música, pero puede ser bloqueada por autoplay; el usuario puede usar el botón de música.
+      AudioEngine.startMusic('start').catch(e => console.warn("Autoplay bloqueado. Usa el botón de música."));
+    }
+  }, [audioReady]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && AudioEngine.isMusicPlaying()) {
+        AudioEngine.resumeContext?.();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
+  if (!audioReady) {
+    return <div style={{ background: C.bg, height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.onSurface, fontSize: 20 }}>Cargando sonidos...</div>;
+  }
+
   return ( <><LogoSymbol /><App /></> );
 }
+
 const GAME_STATE_KEY = 'dilo_como_es_save';
 ReactDOM.createRoot(document.getElementById("root")).render(<Root />);
 </script>
